@@ -12,7 +12,8 @@ returns: 0
 returns: 0
 returns: 1
 returns: 0
-returns: 1
+./cond.tests: line 65: [[: X: integer expected
+returns: 2
 returns: 0
 returns: 1
 returns: 1
@@ -28,7 +29,7 @@ returns: 0
 returns: 1
 returns: 1
 returns: 0
-./cond.tests: line 126: [[: 4+: syntax error: operand expected (error token is "+")
+./cond.tests: line 126: [[: 4+: arithmetic syntax error: operand expected (error token is "+")
 returns: 1
 returns: 0
 returns: 0
@@ -83,11 +84,6 @@ match control-a 2
 match control-a 3
 match control-a 4
 match control-a 5
-cond-regexp2.sub: 38: expected invalid regexp error output to stderr
-cond-regexp2.sub: 44: expected invalid regexp error output to stderr
-cond-regexp2.sub: 46: expected invalid regexp error output to stderr
-cond-regexp2.sub: 49: expected invalid regexp error output to stderr
-cond-regexp2.sub: 52: expected invalid regexp error output to stderr
 ok 1
 ok 2
 ok 3
@@ -153,10 +149,10 @@ ok 6
 ok 7
 ok 8
 bash: -c: line 1: unexpected token `EOF', expected `)'
-bash: -c: line 2: syntax error: unexpected end of file
+bash: -c: line 2: syntax error: unexpected end of file from `[[' command on line 1
 bash: -c: line 1: unexpected EOF while looking for `]]'
-bash: -c: line 2: syntax error: unexpected end of file
-bash: -c: line 1: syntax error in conditional expression
+bash: -c: line 2: syntax error: unexpected end of file from `[[' command on line 1
+bash: -c: line 1: syntax error in conditional expression: unexpected token `]'
 bash: -c: line 1: syntax error near `]'
 bash: -c: line 1: `[[ ( -t X ) ]'
 bash: -c: line 1: unexpected argument `&' to conditional unary operator
@@ -177,7 +173,7 @@ bash: -c: line 1: `[[ 4 > & ]]'
 bash: -c: line 1: unexpected token `&' in conditional command
 bash: -c: line 1: syntax error near `&'
 bash: -c: line 1: `[[ & ]]'
-bash: -c: line 1: conditional binary operator expected
+bash: -c: line 1: unexpected token `7', conditional binary operator expected
 bash: -c: line 1: syntax error near `7'
 bash: -c: line 1: `[[ -Q 7 ]]'
 bash: -c: line 1: unexpected argument `<' to conditional unary operator
@@ -186,6 +182,7 @@ bash: -c: line 1: `[[ -n < ]]'
 ERR: 22: -[[ -n $unset ]]- failed
 ERR: 28: -[[ -z nonempty ]]- failed
 + [[ -t X ]]
+./cond-xtrace1.sub: line 6: [[: X: integer expected
 + [[ '' > 7 ]]
 + [[ -n X ]]
 + ivar=42

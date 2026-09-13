@@ -1,5 +1,4 @@
-./rsh.tests: after exec
-n/sh: restricted
+./rsh1.sub: line 22: /bin/sh: restricted
 ./rsh1.sub: line 24: sh: not found
 ./rsh1.sub: line 25: a: command not found
 ./rsh2.sub: line 23: hash: /bin/sh: restricted
@@ -18,3 +17,4 @@ n/sh: restricted
 set: usage: set [-abefhkmnptuvxBCEHPT] [-o option-name] [--] [-] [arg ...]
 ./rsh.tests: line 46: set: restricted: invalid option name
 ./rsh.tests: line 48: exec: restricted
+./rsh.tests: after exec

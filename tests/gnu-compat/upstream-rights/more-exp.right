@@ -1,12 +1,29 @@
-./more-exp.tests: line 285: abc=def: command not found
-./more-exp.tests: line 436: ${#:}: bad substitution
-./more-exp.tests: line 438: ${#/}: bad substitution
-./more-exp.tests: line 440: ${#%}: bad substitution
-./more-exp.tests: line 442: ${#=}: bad substitution
-./more-exp.tests: line 444: ${#+}: bad substitution
-./more-exp.tests: line 446: ${#1xyz}: bad substitution
-./more-exp.tests: line 449: #: %: syntax error: operand expected (error token is "%")
-] = <d>
+expect <aaa bbb ccc>
+argv[1] = <aaa bbb ccc>
+expect <aaa bbb ccc>
+argv[1] = <aaa bbb ccc>
+expect <baz:bar>
+argv[1] = <baz:bar>
+expect <baz:bar>
+argv[1] = <baz:bar>
+expect <aaa bbb ccc>
+argv[1] = <aaa bbb ccc>
+expect <bar>
+argv[1] = <bar>
+expect <bar>
+argv[1] = <bar>
+expect <bar>
+argv[1] = <bar>
+expect <abcde>
+argv[1] = <abcde>
+expect <abcde>
+argv[1] = <abcde>
+expect <xyz>
+argv[1] = <xyz>
+expect <a b> <c> <d> <e> <f>
+argv[1] = <a b>
+argv[2] = <c>
+argv[3] = <d>
 argv[4] = <e>
 argv[5] = <f>
 expect <a b>
@@ -168,6 +185,7 @@ argv[3] = <c>
 argv[4] = <d>
 argv[5] = <e>
 argv[6] = <f>
+./more-exp.tests: line 285: abc=def: command not found
 argv[1] = <a b c d e>
 argv[1] = <a>
 argv[2] = <b>
@@ -268,12 +286,19 @@ argv[1] = <5>
 expect <0>
 argv[1] = <0>
 expect a bad substitution error
+./more-exp.tests: line 436: ${#:}: bad substitution
 expect a bad substitution error
+./more-exp.tests: line 438: ${#/}: bad substitution
 expect a bad substitution error
+./more-exp.tests: line 440: ${#%}: bad substitution
 expect a bad substitution error
+./more-exp.tests: line 442: ${#=}: bad substitution
 expect a bad substitution error
+./more-exp.tests: line 444: ${#+}: bad substitution
 expect a bad substitution error
+./more-exp.tests: line 446: ${#1xyz}: bad substitution
 expect a math syntax error
+./more-exp.tests: line 449: #: %: arithmetic syntax error: operand expected (error token is "%")
 expect <0>
 argv[1] = <0>
 expect <a+b>

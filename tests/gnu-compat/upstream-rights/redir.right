@@ -1,7 +1,13 @@
-./reabc
+abc
+./redir.tests: line 31: /tmp/redir-test: cannot overwrite existing file
+abc
 def
 def
 ghi
+./redir.tests: line 52: -1: ambiguous redirect
+./redir.tests: line 53: exec: -1: invalid option
+exec: usage: exec [-cl] [-a name] [command [argument ...]] [redirection ...]
+./redir.tests: line 58: $z: ambiguous redirect
 Point 1
 Point 2
 to a
@@ -22,6 +28,8 @@ read line3 "cd"
 read line4 "daemon"
 from stdin: aa
 to stdout
+./redir4.sub: line 45: $fd: ambiguous redirect
+./redir4.sub: line 46: $fd: ambiguous redirect
 err-and-out:
 to stdout
 to stderr
@@ -40,19 +48,16 @@ kl
 ab
 cd
 cd
+./redir.tests: line 184: redir1.*: No such file or directory
 #   This program is free software: you can redistribute it and/or modify
-#   it under the terms of thto stderr
-to stderr
-./redir11.sub: line 55: $(ss= declare -i ss): ambiguous redirect
-foo
-foo
-./redir11.sub: line 77: 42: No such file or directory
-./redir12.sub: line 31: unwritable-file: cannot overwrite existing file
-bash: line 2: 0: ambiguous redirect
-bash: line 3: cd: $'/tmp\r': No such file or directory
-bash: line 4: $'pwd\r': command not found
-bash: line 5: exec: : not found
-se for more details.
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation, either version 3 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
 #
 #   You should have received a copy of the GNU General Public License
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
@@ -133,8 +138,10 @@ to stderr
 to stdout
 to stderr
 
+to stderr
 to stdout
 
+to stderr
 hey
 to stdout
 logfunc is a function
@@ -153,13 +160,22 @@ foo
 1
 7
 after: 42
+./redir11.sub: line 55: $(ss= declare -i ss): ambiguous redirect
 after: 42
 a+=3
+foo
+foo
+./redir11.sub: line 77: 42: No such file or directory
 42
 0 x =
+./redir12.sub: line 31: unwritable-file: cannot overwrite existing file
 1 x =
 0 x =
 after ERR trap: 0
 after set -e: 0
 after set -e with ERR trap: 0
 wow this is bad
+bash: line 2: 0: ambiguous redirect
+bash: line 3: cd: $'/tmp\r': No such file or directory
+bash: line 4: $'pwd\r': command not found
+bash: line 5: exec: : not found

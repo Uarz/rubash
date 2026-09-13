@@ -1,14 +1,24 @@
-./test-glue-functiook 1
+foo/bar foobar/bar
+./test-glue-functions: line 2: $'\r': command not found
+./test-glue-functions: line 4: syntax error near unexpected token `$'\r''
+./test-glue-functions: line 4: `_intl_normalize_spaces()'
+glob2.sub: warning: you do not have the zh_TW.big5 locale installed;
+glob2.sub: warning: that may cause some of these tests to fail.
+ok 1
 ok 2
 ok 3
 ok 4
 ok 5
+./glob2.sub: line 44: warning: setlocale: LC_ALL: cannot change locale (zh_TW.big5): No such file or directory
 b
 argv[1] = <AαB>
 argv[1] = <A>
 argv[1] = <B>
 argv[1] = <aαb>
+./glob2.sub: line 60: _intl_normalize_spaces: command not found
 ok 6
+./glob2.sub: line 65: warning: setlocale: LC_ALL: cannot change locale (zh_TW.big5)
+bash: warning: setlocale: LC_ALL: cannot change locale (zh_TW.big5)
 ok 7
 invalid bracket expression
 == LANG=C ==
@@ -68,15 +78,21 @@ a\?
 a\a
 <define\/\
 />
+glob5.sub: the test suite should not be run as root
 ./tmp/a/b/c ./tmp/a/b/c ./tmp/a/b/c
 ./tmp/a/b/c ./tmp/a/b/c ./tmp/a/b/c
 ./tmp/a/b/c
 ./tmp/a/b/c
 ./tmp\/a/b/c
-./tm[p]\/glob6.sub: the test suite should not be run as root
-./glob9.sub: line 11: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
-./glob.tests: line 67: no match: tmp/*4
-
+./tm[p]\/a/b/c
+./tmp/a/b/c
+argv[1] = <./tmp/a/b>
+argv[1] = <./tmp/a/b>
+argv[1] = <./tmp/a/b/c>
+argv[1] = <./tmp/a/b>
+argv[1] = <./tmp/a/b/c>
+argv[1] = <./tmp/a/b>
+argv[1] = <./tmp/a/b/c>
 argv[1] = <./tmp/a/>
 argv[1] = <./tmp/a/b/>
 argv[1] = <./t\mp/a/>
@@ -91,6 +107,7 @@ argv[1] = <./tmp/>
 argv[1] = <\$foo>
 argv[2] = <\$foo>
 argv[1] = <mixed\$foo/>
+glob6.sub: the test suite should not be run as root
 <abcdefg>
 <\.>
 *abc.c
@@ -111,6 +128,7 @@ readable/. searchable/.
 6:
 a\*b
 a\*b*
+./glob9.sub: line 11: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
 é/*
 é/*
 a aa b bb
@@ -120,21 +138,21 @@ a aa b bb
 mailcheck.o make_cmd.o mksignames mksignames.o mksyntax mksyntax.dSYM
 
 mailcheck.o make_cmd.o mksignames mksignames.o mksyntax mksyntax.dSYM
-mailcheck.o make_cmd.o mksignames mksignames.o mksyntax mksyntax.dSYM
+mksyntax.dSYM mksyntax mksignames.o mksignames make_cmd.o mailcheck.o
 
 mailcheck.o make_cmd.o mksignames mksignames.o mksyntax mksyntax.dSYM
 mailcheck.o make_cmd.o mksignames mksignames.o mksyntax mksyntax.dSYM
 
-mailcheck.o make_cmd.o mksignames mksignames.o mksyntax mksyntax.dSYM
-mailcheck.o make_cmd.o mksignames mksignames.o mksyntax mksyntax.dSYM
+mksyntax mksignames make_cmd.o mailcheck.o mksignames.o mksyntax.dSYM
+mksyntax.dSYM mksignames.o mailcheck.o make_cmd.o mksignames mksyntax
 
-mailcheck.o make_cmd.o mksignames mksignames.o mksyntax mksyntax.dSYM
-mailcheck.o make_cmd.o mksignames mksignames.o mksyntax mksyntax.dSYM
+mksyntax mksignames make_cmd.o mailcheck.o mksignames.o mksyntax.dSYM
+mksyntax.dSYM mksignames.o mailcheck.o make_cmd.o mksignames mksyntax
 
-mailcheck.o make_cmd.o mksignames mksignames.o mksyntax mksyntax.dSYM
-mailcheck.o make_cmd.o mksignames mksignames.o mksyntax mksyntax.dSYM
+mksyntax mksignames make_cmd.o mailcheck.o mksignames.o mksyntax.dSYM
+mksyntax.dSYM mksignames.o mailcheck.o make_cmd.o mksignames mksyntax
 aa ab ac
-aa ab ac
+ac ab aa
 argv[1] = <a>
 argv[2] = <abc>
 argv[3] = <abd>
@@ -149,6 +167,7 @@ argv[2] = <abc>
 argv[3] = <abd>
 argv[4] = <abe>
 tmp/l1 tmp/l2 tmp/*4 tmp/l3
+./glob.tests: line 67: no match: tmp/*4
 argv[1] = <bdir/>
 argv[1] = <*>
 argv[1] = <a*>

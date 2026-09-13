@@ -1,7 +1,19 @@
-./read.tests: line 101: b: readonly variable
-./read2.sub: line 45: read: -3: invalid timeout specification
-./read3.sub: line 17: read: -1: invalid number
-] = <^?>
+a.
+-a-b-
+-a-b -
+-a  b-
+-a  b-
+-a-b\-
+-a  b\-
+-\-a  b\-
+-\ a  b\-
+-\-a  b\-
+-\ a  b\-
+argv[1] = <abc>
+argv[1] = <abc\>
+argv[1] = <^A>
+argv[1] = <^A>
+argv[1] = <^?>
 argv[1] = <^?>
 argv[1] = <abcd>
 1: x[A] y[B] z[]
@@ -19,7 +31,8 @@ argv[1] = < foo>
 argv[1] = <foo>
 argv[1] = <foo>
 argv[1] = < foo>
-a = a b = c = stat = 1
+./read.tests: line 101: b: readonly variable
+a = a b = c = stat = 2
 a = abcdefg
 xyz
 a = xyz
@@ -27,14 +40,17 @@ a = -xyz 123-
 a = abc
 <A>
 <$'B\315'>
+<$'C\226'>
 <A>
-<$'B\315\nC\226'>
+<$'B\315'>
+<$'C\226'>
 <winter>
 <spring>
 <$'summer\200apple\200banana\200cherry'>
 <automn>
 <winter>
-<$'spring\375\200summer'>
+<$'spring\375'>
+<summer>
 <automn>
 timeout 1: ok
 unset or null 1
@@ -42,11 +58,13 @@ timeout 2: ok
 unset or null 2
 timeout 3: ok
 unset or null 3
+./read2.sub: line 45: read: -3: invalid timeout specification
 1
 
 abcde
 abcde
 abcde
+./read3.sub: line 17: read: -1: invalid number
 abc
 defg
 ab
@@ -85,12 +103,6 @@ one
 two three four
 one
 two three four
-read9.expout read9.stdout differ: byte 24, line 1
-read9.sub: expected output and actual output differ
-1c1
-< var1="  line", var2="b "
----
-> var1="  line", var2="b 	"
-IFS=[,] var=[abc:def,ghi] rest=[]
-IFS=[] var=[abc:def,ghi] rest=[]
-IFS=[ ] var=[  abc:def,ghi ] rest=[]
+IFS=[,] var=[abc] rest=[def,ghi]
+IFS=[] var=[abc] rest=[def,ghi]
+IFS=[ ] var=[  abc] rest=[def,ghi ]

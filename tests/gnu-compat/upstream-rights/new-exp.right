@@ -1,34 +1,83 @@
+new-exp.tests: the test suite should not be run as root
 expect <foo bar>
 argv[1] = <foo bar>
 expect <foo>
-argv[1./new-exp.tests: line 41: HOME: }: syntax error: operand expected (error token is "}")
-./new-exp.tests: line 189: bad-var: invalid variable name
-./new-exp.tests: line 202: ABX: unbound variable
-./new-exp.tests: line 206: $6: cannot assign in this way
-./new-exp2.sub: line 37: $TMPDIR/bashtmp.x*: ambiguous redirect
-./new-exp2.sub: line 55: /tmp/redir-notthere: No such file or directory
-./new-exp2.sub: line 62: 1111111111111111111111: command not found
-./new-exp.tests: line 307: ${#:}: bad substitution
-./new-exp.tests: line 525: $9: unbound variable
-./new-exp.tests: line 526: 9: unbound variable
-./new-exp.tests: line 527: UNSET: unbound variable
-./new-exp.tests: line 528: UNSET: unbound variable
-./new-exp.tests: line 529: UNSET: unbound variable
-./new-exp.tests: line 530: UNSET: unbound variable
-./new-exp.tests: line 531: UNSET: unbound variable
-./new-exp3.sub: line 36: ${!_Q* }: bad substitution
-./new-exp3.sub: line 41: ${!1*}: bad substitution
-./new-exp3.sub: line 43: ${!@*}: bad substitution
-./new-exp.tests: line 551: ${$(($#-1))}: bad substitution
-./new-exp.tests: line 570: $(($# - 2)): substring expression < 0
-./new-exp.tests: line 572: -2: substring expression < 0
-bash: line 1: ${x@C}: bad substitution
-./new-exp10.sub: line 153: ${V@}: bad substitution
-./new-exp13.sub: line 56: aaa bbb: invalid variable name
-bash: line 1: foo: unbound variable
-bash: line 1: !bar: unbound variable
-./new-exp.tests: line 1: ABXD: parameter unset
-t <gh ij> <kl mn> <op>
+argv[1] = <foo>
+expect </usr/homes/chet>
+argv[1] = </usr/homes/chet>
+expect </usr/homes/chet>
+argv[1] = </usr/homes/chet>
+expect </usr/homes/chet>
+argv[1] = </usr/homes/chet>
+expect ./new-exp.tests: HOME: }: syntax error: operand expected (error token is "}")
+./new-exp.tests: line 41: HOME: }: arithmetic syntax error: operand expected (error token is "}")
+expect unset
+unset
+expect </usr/homes/chet>
+argv[1] = </usr/homes/chet>
+expect </usr/homes/chet>
+argv[1] = </usr/homes/chet>
+expect </usr/homes/chet>
+argv[1] = </usr/homes/chet>
+expect </usr/homes/chet>
+argv[1] = </usr/homes/chet>
+expect </usr/homes/chet>
+argv[1] = </usr/homes/chet>
+expect </usr/homes/chet>
+argv[1] = </usr/homes/chet>
+expect </usr/homes/chet>
+argv[1] = </usr/homes/chet>
+expect <*@>
+argv[1] = <*@>
+expect <*@>
+argv[1] = <*@>
+expect <@*>
+argv[1] = <@*>
+expect <)>
+argv[1] = <)>
+expect <")">
+argv[1] = <")">
+expect <-abcd> <->
+argv[1] = <-abcd>
+argv[2] = <->
+expect <-abcd> <->
+argv[1] = <-abcd>
+argv[2] = <->
+expect <-abcd->
+argv[1] = <-abcd->
+expect <bar foo>
+bar foo
+expect <bar foo>
+bar foo
+expect <bar foo>
+bar foo
+expect <barfoo>
+barfoo
+expect <barfoo>
+barfoo
+expect <\x>
+\x
+expect <abcd>
+argv[1] = <abcd>
+expect <efg> <nop>
+argv[1] = <efg>
+argv[2] = <nop>
+expect <efg> <nop>
+argv[1] = <efg>
+argv[2] = <nop>
+expect <hijklmnop>
+argv[1] = <hijklmnop>
+expect <abcdefghijklmnop>
+argv[1] = <abcdefghijklmnop>
+expect <abcdefghijklmnop>
+argv[1] = <abcdefghijklmnop>
+expect <ab cd> <ef>
+argv[1] = <ab cd>
+argv[2] = <ef>
+expect <gh ij> <kl mn>
+argv[1] = <gh ij>
+argv[2] = <kl mn>
+expect <gh ij> <kl mn> <op>
 argv[1] = <gh ij>
 argv[2] = <kl mn>
 argv[3] = <op>
@@ -63,6 +112,7 @@ argv[1] = <abcdefghijklmnop>
 expect nothing
 expect nothing
 expect an error
+./new-exp.tests: line 189: bad-var: invalid variable name
 expect <a> <b> <c> <d>
 argv[1] = <a>
 argv[2] = <b>
@@ -73,7 +123,9 @@ argv[1] = <a>
 argv[2] = <b c>
 argv[3] = <d>
 expect ./new-exp.tests: ABX: unbound variable
+./new-exp.tests: line 202: ABX: unbound variable
 expect ./new-exp.tests: $6: cannot assign in this way
+./new-exp.tests: line 206: $6: cannot assign in this way
 expect <xxcde>
 argv[1] = <xxcde>
 expect <axxde>
@@ -212,13 +264,17 @@ expect this is test 2
 this is test 2
 expect a
 a
+./new-exp2.sub: line 37: $TMPDIR/bashtmp.x*: ambiguous redirect
 whoops: $(< filename) with glob expansion failed
+./new-exp2.sub: line 55: /tmp/redir-notthere: No such file or directory
 1
 
+./new-exp2.sub: line 62: 1111111111111111111111: command not found
 
 expect <6>
 argv[1] = <6>
 expect ./new-exp.tests: ${#:}: bad substitution
+./new-exp.tests: line 307: ${#:}: bad substitution
 expect <'>
 argv[1] = <'>
 expect <">
@@ -486,6 +542,13 @@ argv[6] = <w>
 argv[7] = <x>
 argv[8] = <y>
 argv[9] = <z>
+./new-exp.tests: line 525: $9: unbound variable
+./new-exp.tests: line 526: 9: unbound variable
+./new-exp.tests: line 527: UNSET: unbound variable
+./new-exp.tests: line 528: UNSET: unbound variable
+./new-exp.tests: line 529: UNSET: unbound variable
+./new-exp.tests: line 530: UNSET: unbound variable
+./new-exp.tests: line 531: UNSET: unbound variable
 argv[1] = <5>
 argv[1] = <#>
 argv[1] = <#>
@@ -521,6 +584,9 @@ argv[3] = <_QUEST>
 argv[4] = <_QUILL>
 argv[5] = <_QUOTA>
 argv[6] = <_QUOTE>
+./new-exp3.sub: line 36: ${!_Q* }: bad substitution
+./new-exp3.sub: line 41: ${!1*}: bad substitution
+./new-exp3.sub: line 43: ${!@*}: bad substitution
 Case01---3---A:B:C---
 Case02---1---A B C::---
 Case03---3---A:B:C---
@@ -529,6 +595,7 @@ Case05---3---A:B:C---
 Case06---1---A B C::---
 Case07---3---A:B:C---
 Case08---3---A:B:C---
+./new-exp.tests: line 551: ${$(($#-1))}: bad substitution
 argv[1] = <a>
 argv[2] = <b>
 argv[3] = <c>
@@ -545,6 +612,8 @@ argv[1] = <a>
 argv[1] = <a>
 argv[2] = <b>
 argv[1] = <>
+./new-exp.tests: line 570: $(($# - 2)): substring expression < 0
+./new-exp.tests: line 572: -2: substring expression < 0
 argv[1] = <bin>
 argv[2] = <bin>
 argv[3] = <ucb>
@@ -679,6 +748,7 @@ c Sub = 0 2 4 8
 <>
 <>
 <'ab '\''cd'\'' ef'> 
+bash: line 1: ${x@C}: bad substitution
 <'ab'> <'cd ef'> <''> <'gh'> 
 <'ab' 'cd ef' '' 'gh'> 
 <'ab'> <'cd> <ef'> <''> <'gh'> 
@@ -692,7 +762,7 @@ c Sub = 0 2 4 8
 < 	
 >
 <$' \t\n'>
-$'\001'
+$'\001\001'
 declare -r x='ab '\''cd'\'' ef'
 set -- 'ab' 'cd ef' '' 'gh' 
 declare -a A=([0]="ab" [1]="cd ef" [2]="" [3]="gh") 
@@ -711,12 +781,13 @@ A
 declare -A foo
 LOWER
 Lower
-argv[1] = <host(2)[5.2]# >
+argv[1] = <host(2)[5.3]# >
 argv[1] = <~# >
 argv[1] = <^A[0]~# >
 argv[1] = <^A^G^B[0:1]~\# >
 argv[1] = </ bash# >
 argv[1] = <1^J/ bash# >
+./new-exp10.sub: line 153: ${V@}: bad substitution
 abcxxxdef
 abcÃ¥def
 ḅć
@@ -762,6 +833,7 @@ one
 one
 'aaa'
 'aaa' 'bbb'
+./new-exp13.sub: line 56: aaa bbb: invalid variable name
 aaa bbb
 0 1
 'aaa'
@@ -789,8 +861,10 @@ argv[8] = <three t>
 declare -a foo=()
 ai
 declare -ai foo
+bash: line 1: foo: unbound variable
 ai
 declare -ai foo
+bash: line 1: !bar: unbound variable
 a
 a
 a
@@ -864,3 +938,4 @@ argv[1] = </>
 1/%%2/%%3
 1%%2/#3
 expect ./new-exp.tests: ABXD: parameter unset
+./new-exp.tests: line 1: ABXD: parameter unset

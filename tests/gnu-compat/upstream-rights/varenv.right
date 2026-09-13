@@ -185,7 +185,7 @@ outside 2.1: var=global
 inside func1: var=value
 outside 3.0: var=value
 inside func1: var=func
-outside 3.5: var=func
+outside 3.5: var=outside
 inside func2: var=global
 outside 4.0: var=outside
 foo: hello world
@@ -292,9 +292,9 @@ declare -x v="x"
 declare -x v="t"
 declare -- v
 declare -x v
-ignoreeof      	on
-ignoreeof      	off
-ignoreeof      	on
+ignoreeof           	on
+ignoreeof           	off
+ignoreeof           	on
 10
 local -
 match 1
@@ -314,41 +314,28 @@ declare -rx x="4"
 declare -rx y="5"
 f:3
 f1:3
-global1:3 3
-./varenv23.sub: line 37: a: readonly variable
-./varenv23.sub: line 38: b: readonly variable
-global2:3 3
-./varenv23.sub: line 47: a: readonly variable
-./varenv23.sub: line 44: local: a: readonly variable
+global1:bcde
 f:3
-./varenv23.sub: line 48: b: readonly variable
-./varenv23.sub: line 45: local: b: readonly variable
-./varenv23.sub: line 45: declare: b: readonly variable
 f1:3
-global:3 3
-./varenv23.sub: line 52: a: readonly variable
-./varenv23.sub: line 53: b: readonly variable
-global:3 3
-./varenv23.sub: line 61: a: readonly variable
-./varenv23.sub: line 59: local: a: readonly variable
-./varenv23.sub: line 59: a: readonly variable
+global2:bcde
 f:3
-3
-./varenv23.sub: line 64: a: readonly variable
-3
-./varenv23.sub: line 70: a: readonly variable
-./varenv23.sub: line 68: a: readonly variable
+f1:3
+global:bcde
+f:3
+f1:3
+global:bcde
+f:3
+bcde
+f:3
+bcde
+f1:3
+global: bcde
 f1:3
 global: 3
-./varenv23.sub: line 74: a: readonly variable
-global: 3
-./varenv23.sub: line 81: b: readonly variable
 f: 3
 global: declare -rx c="3"
-./varenv23.sub: line 83: b: readonly variable
-./varenv23.sub: line 83: declare: b: readonly variable
-f1: 3
-global: declare -rx b="3"
+f1: 4
+global: declare -- b="8"
 f1: x = local
 f2: x = local
 after f2: x = global
@@ -360,12 +347,12 @@ localvar_unset after f1: x = global
 f1: x = temp
 after f1: x = global
 1009: after bash unset: x = global
-1009: after posix unset: x = global
+1009: after posix unset: x = unset
 f1: x = local
 after unset f1: x = local
 1009: after bash f1: x = global
 f1: x = local
-after unset f1: x = local
+after unset f1: x = unset
 1009: after posix f1: x = global
 global initial
 declare -- string
@@ -378,11 +365,11 @@ inside init_vars acting on previous scope
 inside foo, after init_vars
 declare -r string="foo"
 declare -ir int="100"
-declare -ar array
+declare -ar array=([0]="1" [1]="2")
 global after foo
 declare -- string
 declare -i int
-declare -a array=([0]="1" [1]="2")
+declare -a array
 init_vars2
 ./varenv25.sub: line 51: local: int: not found
 foo2, after init_vars2

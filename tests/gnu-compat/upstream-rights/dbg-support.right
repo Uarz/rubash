@@ -1,14 +1,28 @@
+0 NULL
 ./dbg-support.tests: line 72: caller: -z: invalid option
-caller: debug lineno: 85 main./dbg-support.tests: line 38: caller: foo: invalid number
 caller: usage: caller [expr]
-./dbg-support.tests: line 38: caller: foo: invalid number
-caller: usage: caller [expr]
-./dbg-support.tests: line 38: caller: foo: invalid number
-caller: usage: caller [expr]
-./dbg-support.tests: line 38: caller: foo: invalid number
-caller: usage: caller [expr]
-7 fn1
+debug lineno: 78 main
+debug lineno: 81 main
+FUNCNAME main
+debug lineno: 85 main
+debug lineno: 30 fn1
+debug lineno: 31 fn1
+LINENO 31
+debug lineno: 32 fn1
+LINENO 32
+debug lineno: 33 fn1
+BASH_SOURCE[0] ./dbg-support.tests
+debug lineno: 34 fn1
+FUNCNAME[0] fn1
+debug lineno: 35 fn1
+debug lineno: 35 fn1 85 ./dbg-support.tests
+debug lineno: 36 fn1
+debug lineno: 36 fn1 85 main ./dbg-support.tests
+debug lineno: 37 fn1
+debug lineno: 37 fn1
 debug lineno: 38 fn1
+./dbg-support.tests: line 38: caller: foo: invalid number
+caller: usage: caller [expr]
 debug lineno: 38 fn1
 debug lineno: 30 fn1
 debug lineno: 25 print_return_trap
@@ -36,6 +50,8 @@ debug lineno: 36 fn1 43 fn2 ./dbg-support.tests
 debug lineno: 37 fn1
 debug lineno: 37 fn1 86 main ./dbg-support.tests
 debug lineno: 38 fn1
+./dbg-support.tests: line 38: caller: foo: invalid number
+caller: usage: caller [expr]
 debug lineno: 38 fn1
 debug lineno: 30 fn1
 debug lineno: 25 print_return_trap
@@ -176,6 +192,8 @@ FUNCNAME[0] fn1
 94 ./dbg-support.tests
 94 main ./dbg-support.tests
 
+./dbg-support.tests: line 38: caller: foo: invalid number
+caller: usage: caller [expr]
 
 debug lineno: 95 main
 fn2 here. Calling fn1...
@@ -186,6 +204,8 @@ FUNCNAME[0] fn1
 43 ./dbg-support.tests
 43 fn2 ./dbg-support.tests
 95 main ./dbg-support.tests
+./dbg-support.tests: line 38: caller: foo: invalid number
+caller: usage: caller [expr]
 
 debug lineno: 96 main
 LINENO 47
