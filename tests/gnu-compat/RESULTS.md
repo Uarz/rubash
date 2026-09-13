@@ -1,14 +1,15 @@
 # GNU Bash Compatibility Test Results
 
-## Date: 2026-08-28
+## Date: 2026-09-13 (re-run; original 2026-08-28)
 
 ## Summary
 
 | Metric | Result |
 |--------|--------|
-| **Pass rate** | **94.4% (34/36)** |
-| Known bugs | 2 |
+| **Pass rate** | **100% (36/36)** |
+| Known bugs | 0 |
 | Total tests | 36 |
+| Oracle | WSL GNU bash 5.3.0 (rights generated under 5.2.21, verified byte-identical on 5.3.0) |
 
 ## Test Results
 
@@ -24,14 +25,18 @@
 - redirect-stdout, set-e, shopt-pipefail, string-compare
 - while-loop, word-split
 
-### Failing (2)
+### Failing (0)
 
-| Test | Expected | Got | Issue |
-|------|----------|-----|-------|
-| braces-nested | a1 a2 b1 b2 | a b 1 2 | Nested brace expansion |
-| braces-triple | a1x a1y... | a b 1 2 x y | Triple nested brace expansion |
+The two brace expansion bugs below were fixed by the brace expansion rework
+(commit 31c57d9c, mkseq i64 overflow bound in ffc14d9c). Verified 2026-09-13:
+rubash output is byte-identical to WSL GNU bash 5.3.0 for both cases.
+
+| Test | Was broken | Now |
+|------|----------|-----|
+| braces-nested | `{a,b}{1,2}` expanded as `a b 1 2` | PASS (`a1 a2 b1 b2`) |
+| braces-triple | `{a,b}{1,2}{x,y}` expanded flat | PASS (`a1x a1y ... b2x b2y`) |
 
 ## Conclusion
 
-rubash has **94.4% compatibility** with GNU Bash on Windows.
-The only remaining bugs are in nested brace expansion.
+rubash is **100% compatible** with GNU Bash on this suite, and matches
+GNU bash 5.3.0 output byte-for-byte on all 36 cases.

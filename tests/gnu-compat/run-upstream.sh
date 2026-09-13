@@ -36,6 +36,11 @@ for test_file in "$UPSTREAM_DIR"/*.tests; do
     diff_file="$WORK_DIR/${name}.diff"
     total=$((total + 1))
     if [ ! -f "$right_file" ] || [ ! -s "$right_file" ]; then
+        if [ "${NIU_RIGHTS_REGEN:-0}" != "1" ]; then
+            echo "MISS $name (no/empty .right; run with NIU_RIGHTS_REGEN=1 to regenerate)"
+            skip=$((skip + 1))
+            continue
+        fi
         echo -n "GEN   $name ... "
         wsl bash -c "cd $WSL_TEMP && PATH=$WSL_TEMP:/usr/local/bin:/usr/bin:/bin /usr/bin/bash $WSL_TEMP/${name}.tests > /tmp/_up_out.txt 2>/tmp/_up_err.txt" 2>/dev/null || true
         wsl bash -c "cp /tmp/_up_out.txt $WSL_RI/${name}.right" 2>/dev/null

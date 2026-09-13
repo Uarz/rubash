@@ -8,7 +8,9 @@ RUBASH="$ROOT_DIR/target/debug/rubash.exe"
 GNU_BASH="wsl bash"
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/tests" && pwd)"
 RIGHT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/rights" && pwd)"
-WORK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/work" && pwd)"
+# NOTE: resolve WORK_DIR before cd-ing into it (the directory may not exist yet).
+WORK_BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORK_DIR="$WORK_BASE/work"
 
 mkdir -p "$WORK_DIR"
 
@@ -56,15 +58,22 @@ echo "rubash: $RUBASH"
 echo "GNU Bash (WSL): $GNU_BASH"
 echo ""
 
-# Generate .right files if missing
+# .right files are static assets generated once under a pinned GNU bash
+# oracle. Regeneration is explicit-only: run with NIU_RIGHTS_REGEN=1.
+# Silent auto-generation is forbidden - it bakes in whatever bash version
+# currently lives in WSL (oracle drift) and hides test-script errors behind
+# "|| true" producing empty .right files that auto-skip.
 generate_rights() {
     local test_file="$1"
     local test_name=$(basename "$test_file" .sh)
     local right_file="$RIGHT_DIR/${test_name}.right"
-    
+
     if [[ ! -f "$right_file" ]]; then
+        if [[ "${NIU_RIGHTS_REGEN:-0}" != "1" ]]; then
+            echo -e "${RED}MISSING${NC} ${test_name}.right (run with NIU_RIGHTS_REGEN=1 to regenerate)"
+            exit 3
+        fi
         echo -e "${YELLOW}GENERATING${NC} ${test_name}.right"
-        # Copy test file to WSL and execute
         $GNU_BASH -c "cp /mnt/d/repo/rubash/$test_file /tmp/gen_test.sh && chmod +x /tmp/gen_test.sh && /tmp/gen_test.sh" > "$right_file" 2>/dev/null || true
     fi
 }
@@ -77,12 +86,12 @@ run_test() {
     local rubash_out="$WORK_DIR/${test_name}.rubash.out"
     local diff_file="$WORK_DIR/${test_name}.diff"
     
-    ((total++))
-    
+    total=$((total + 1))
+
     # Check for SKIP marke
     if head -5 "$test_file" | grep -q "# SKIP"; then
         echo -e "${YELLOW}SKIP${NC}  $test_name"
-        ((skip++))
+        skip=$((skip + 1))
         return 0
     fi
     
@@ -105,11 +114,11 @@ run_test() {
     # Compare with .right
     if diff -u "$right_file" "$rubash_out" > "$diff_file" 2>&1; then
         echo -e "${GREEN}PASS${NC}  $test_name"
-        ((pass++))
+        pass=$((pass + 1))
     else
         echo -e "${RED}FAIL${NC}  $test_name"
         head -3 "$diff_file" | sed 's/^/  /'
-        ((fail++))
+        fail=$((fail + 1))
     fi
 }
 

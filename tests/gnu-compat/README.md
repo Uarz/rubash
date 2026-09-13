@@ -9,8 +9,24 @@ Unlike Git Bash (MSYS2), WSL provides a true GNU Bash environment.
 
 ## Versions
 
-- **rubash**: 5.2.37(1)-release
-- **GNU Bash (WSL)**: 5.2.21(1)-release
+- **rubash**: self-reports `5.3.0(1)-release` (matches GNU Bash 5.3 semantics)
+- **GNU Bash (WSL) oracle**: 5.3.0(1)-release (rights were originally generated under 5.2.21; re-verified byte-identical against 5.3.0 on 2026-09-13 across all 36 cases - zero oracle drift)
+
+## .right Files Are Static Assets
+
+The `.right` files under `rights/` were generated once from the WSL GNU bash
+oracle and are never regenerated as a side effect of running tests. If a
+`.right` file is missing, the runner fails loudly instead of silently
+recreating it. To regenerate (e.g. after deliberately adding a test or
+upgrading the oracle bash), run explicitly:
+
+```bash
+NIU_RIGHTS_REGEN=1 ./tests/gnu-compat/run-test.sh
+```
+
+Rationale: auto-generation bakes in whatever bash version currently lives in
+WSL and swallows test-script errors into empty `.right` files that auto-skip -
+both make results irreproducible.
 
 ## Running Tests
 
@@ -27,15 +43,15 @@ Unlike Git Bash (MSYS2), WSL provides a true GNU Bash environment.
 
 ## Test Results (Current)
 
-- **Pass**: 34/36 (94.4%)
-- **Fail**: 2/36 (known brace expansion bugs)
+- **Pass**: 36/36 (100%) — re-verified 2026-09-13 against bash 5.3.0 semantics
+- **Fail**: 0
 
-### Known Bugs
+### Formerly Known Bugs (fixed)
 
-| Test | Issue |
-|------|-------|
-| braces-nested | `{a,b}{1,2}` not expanding |
-| braces-triple | `{a,b}{1,2}{x,y}` not expanding |
+| Test | Issue | Fixed by |
+|------|-------|----------|
+| braces-nested | `{a,b}{1,2}` not expanding | brace expansion rework (commit 31c57d9c) |
+| braces-triple | `{a,b}{1,2}{x,y}` not expanding | brace expansion rework (commit 31c57d9c) |
 
 ## File Structure
 
