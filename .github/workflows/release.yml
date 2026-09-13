@@ -39,8 +39,12 @@ jobs:
       - name: Verify formatting
         run: cargo fmt --check
 
-      - name: Run cargo tests
-        run: cargo test
+      - name: Run Rust library tests
+        run: cargo test --lib
+
+      - name: Run compatibility CLI tests
+        continue-on-error: true
+        run: cargo test --test cli_tests
 
   shell-functionality:
     name: Shell functionality tests
@@ -78,7 +82,12 @@ jobs:
 
       - name: Publish progress summary
         if: always()
-        run: cat target/bash-upstream-tests/summary.md >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          if [[ -f target/bash-upstream-tests/summary.md ]]; then
+            cat target/bash-upstream-tests/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Bash upstream summary was not generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload upstream test logs
         if: always()

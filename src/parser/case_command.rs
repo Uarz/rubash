@@ -51,11 +51,7 @@ pub(super) fn parse_case_command(tokens: &[Token], start: usize) -> Option<(Comm
                     break;
                 }
             }
-            let source = tokens[start..=final_esac]
-                .iter()
-                .map(|t| t.raw.as_str())
-                .collect::<Vec<_>>()
-                .join(" ");
+            let source = raw_token_span(tokens, start, final_esac);
             let mut command = CommandNode::new();
             command.line = tokens.get(start).map(|token| token.position);
             command.insert_assignment(
@@ -265,6 +261,22 @@ pub(super) fn parse_case_command(tokens: &[Token], start: usize) -> Option<(Comm
         end_keyword_metadata: build_keyword_metadata(&tokens[i]),
     }));
     Some(finish_compound_command(command, tokens, i + 1))
+}
+
+fn raw_token_span(tokens: &[Token], start: usize, end: usize) -> String {
+    let slice = &tokens[start..=end];
+    let mut parts = Vec::with_capacity(slice.len() * 2);
+    for (idx, token) in slice.iter().enumerate() {
+        if idx > 0 {
+            let previous = &slice[idx - 1];
+            let previous_end = previous.column + previous.raw.len();
+            if token.column > previous_end {
+                parts.push(" ".repeat(token.column - previous_end));
+            }
+        }
+        parts.push(token.raw.clone());
+    }
+    parts.concat()
 }
 
 pub(super) fn case_parse_error_message(_tokens: &[Token], _start: usize) -> &'static str {

@@ -119,7 +119,8 @@ pub(in crate::executor) fn parse_exported_function_body(
                 if first.words.len() > 1 {
                     return None;
                 }
-                if t_ast.commands.len() != 1 || first.words.first().map(String::as_str) != Some(":") {
+                if t_ast.commands.len() != 1 || first.words.first().map(String::as_str) != Some(":")
+                {
                     return None;
                 }
                 // Check that all remaining tokens after `:` are redirects, not words.

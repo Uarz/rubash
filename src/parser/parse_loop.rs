@@ -11,9 +11,8 @@ pub struct ParseLoopOptions {
     /// GNU echoes the offending input line verbatim; token reconstruction
     /// cannot recover the original spacing, so the guard slices this text.
     pub source_text: Option<String>,
-    /// How many lines the caller shifted token positions by before parsing
-    /// (eval reparse shifts by the caller's line counter minus one), so the
-    /// guard can map a token position back to a 0-based source-text line.
+    /// How much the caller shifted token positions by before parsing, so the
+    /// guard can map a token position back to the source-text byte offset.
     pub source_line_offset: usize,
 }
 
@@ -63,11 +62,8 @@ pub fn parse_with_options(tokens: &[Token], options: ParseLoopOptions) -> Ast {
             // reparse) echo that line verbatim; token reconstruction cannot
             // recover the original spacing.
             let verbatim = options.source_text.as_ref().and_then(|text| {
-                let string_line = tokens[i]
-                    .position
-                    .checked_sub(options.source_line_offset)?
-                    .checked_sub(1)?;
-                text.split('\n').nth(string_line).map(str::to_string)
+                let source_offset = tokens[i].position.checked_sub(options.source_line_offset)?;
+                source_line_at_byte_offset(text, source_offset)
             });
             let source = verbatim.unwrap_or_else(|| {
                 let line_number = tokens[i].position;
@@ -1037,6 +1033,21 @@ pub(super) fn parse_time_prefixed_shell_command(
     }
 
     Some((commands.remove(0), end))
+}
+
+fn source_line_at_byte_offset(text: &str, offset: usize) -> Option<String> {
+    if offset > text.len() || !text.is_char_boundary(offset) {
+        return None;
+    }
+    let line_start = text[..offset]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let line_end = text[offset..]
+        .find('\n')
+        .map(|index| offset + index)
+        .unwrap_or(text.len());
+    Some(text[line_start..line_end].to_string())
 }
 
 fn time_prefixed_shell_command_end(tokens: &[Token], mut index: usize) -> usize {

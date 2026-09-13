@@ -520,7 +520,7 @@ pub(in crate::executor) fn scan_substitution_spans(raw: &str) -> Vec<Substitutio
                         &mut inner_case_depth,
                         &mut inner_word_boundary,
                         &mut inner_current_word_boundary,
-                        &raw[cursor + 1..],
+                        &raw[chars[cursor].0 + inner.len_utf8()..],
                     );
                     // Heredoc bodies are literal data for substitution-span
                     // matching: parse.y gather_here_documents reads the whole
@@ -814,8 +814,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 0x1d,
-                0x1f,
-                0x1a,
+                RAW_BYTE_MARKER_ESCAPE,
+                RAW_BYTE_MARKER_FIRST + 0x1f,
+                RAW_BYTE_MARKER_ESCAPE,
+                RAW_BYTE_MARKER_FIRST + 0x1a,
                 0x15,
                 RAW_BYTE_MARKER_ESCAPE,
                 RAW_BYTE_MARKER_FIRST + 0xff,

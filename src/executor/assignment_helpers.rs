@@ -612,7 +612,8 @@ pub(in crate::executor) fn unquote_storage_value(value: &str) -> String {
                     {
                         chars.next();
                         if let Some(byte) = char::from_u32(
-                            next as u32 - crate::executor::substitution_metadata::RAW_BYTE_MARKER_FIRST,
+                            next as u32
+                                - crate::executor::substitution_metadata::RAW_BYTE_MARKER_FIRST,
                         ) {
                             decoded.push(byte);
                             continue;

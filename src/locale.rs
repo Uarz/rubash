@@ -9,7 +9,7 @@
 /// Unlike GNU bash, which calls setlocale() at startup only, rubash checks
 /// the environment dynamically on each call since LC_ALL is often set within
 /// scripts after startup.
-use std::cell::Cell;
+use std::cell::RefCell;
 
 /// The active encoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,19 +77,19 @@ pub fn is_utf8_locale_name(name: &str) -> bool {
 // Cached outcome of the locale activation probe, keyed by the locale name so
 // that `LC_ALL=...` reassignment inside a script invalidates it.
 thread_local! {
-    static UTF8_ACTIVE_CACHE: Cell<Option<(String, bool)>> = const { Cell::new(None) };
+    static UTF8_ACTIVE_CACHE: RefCell<Option<(String, bool)>> = const { RefCell::new(None) };
 }
 
 #[cfg(unix)]
 fn utf8_locale_active(name: &str) -> bool {
     UTF8_ACTIVE_CACHE.with(|cache| {
-        if let Some((seen, value)) = *cache.get() {
+        if let Some((seen, value)) = cache.borrow().as_ref() {
             if seen == name {
-                return value;
+                return *value;
             }
         }
         let value = probe_utf8_locale(name);
-        cache.set(Some((name.to_string(), value)));
+        *cache.borrow_mut() = Some((name.to_string(), value));
         value
     })
 }

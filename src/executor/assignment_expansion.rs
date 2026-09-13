@@ -211,10 +211,23 @@ impl Executor {
             // This fast path skips the general expander (which strips \x11),
             // so dequote here the same way glob.rs dequote_pathname does:
             // drop the \x11 sentinel and keep the following character.
+            //
+            // `restored` is already canonical storage form and must NOT go
+            // through the bytes_to_shell_text(shell_text_to_raw_bytes(..))
+            // round-trip it used before: that boundary treats every control
+            // byte as data and re-encodes it as a U+E000 marker pair, which
+            // also sweeps the lexer's marker-role C0 chars (0x17 hoisted
+            // quote, 0x14 backslash, 0x1a backtick) into data pairs. The
+            // downstream quote-restore passes then find no 0x17 to turn
+            // back into a literal quote and the character is dropped
+            // (x="a'b'c" stored aE000-pair bE000-pair c; echo "${x//\'/\'}"
+            // printed abc instead of a'b'c, quote.tests 77-80/88).
+            // Data bytes from $'...' stay as U+E000 pairs here -- exactly
+            // how the ANSI-C decoder emits them -- and every consumer that
+            // needs raw bytes decodes the pairs at its exact-once boundary
+            // (shell_text_to_raw_bytes), so nothing is lost by keeping them.
             let restored = dequote_ctlesc(&restored);
-            return crate::executor::substitution_metadata::bytes_to_shell_text(
-                &crate::executor::substitution_metadata::shell_text_to_raw_bytes(&restored),
-            );
+            return restored;
         }
         // GNU subst.c:4357 expand_string_assignment (W_ASSIGNMENT,
         // subst.c:11432): unquoted element values of a compound assignment

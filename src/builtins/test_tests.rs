@@ -4,6 +4,8 @@ use std::fs;
 use std::io::IsTerminal;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
+use std::path::PathBuf;
 
 #[cfg(unix)]
 fn make_fifo(path: &str) {
@@ -121,40 +123,46 @@ fn ownership_unary_operators_check_existing_file() {
 #[cfg(unix)]
 #[test]
 fn unix_file_unary_operators_check_file_types_and_mode_bits() {
-    let fifo_path = "target/rubash-test-file-kind-fifo";
-    let socket_path = "target/rubash-test-file-kind-socket";
-    let mode_path = "target/rubash-test-file-kind-mode.txt";
-    let sticky_dir = "target/rubash-test-file-kind-sticky-dir";
-    let _ = fs::remove_file(fifo_path);
-    let _ = fs::remove_file(socket_path);
-    let _ = fs::remove_file(mode_path);
-    let _ = fs::remove_dir_all(sticky_dir);
+    let base = std::env::temp_dir().join(format!("rubash-test-file-kind-{}", std::process::id()));
+    let fifo_path = base.join("fifo");
+    let socket_path = base.join("socket");
+    let mode_path = base.join("mode.txt");
+    let sticky_dir = base.join("sticky-dir");
+    let _ = fs::remove_dir_all(&base);
+    fs::create_dir_all(&base).unwrap();
 
-    make_fifo(fifo_path);
-    let _socket = std::os::unix::net::UnixListener::bind(socket_path).unwrap();
-    fs::write(mode_path, "data").unwrap();
-    let mut permissions = fs::metadata(mode_path).unwrap().permissions();
+    let fifo_arg = path_arg(&fifo_path);
+    let socket_arg = path_arg(&socket_path);
+    let mode_arg = path_arg(&mode_path);
+    let sticky_arg = path_arg(&sticky_dir);
+
+    make_fifo(&fifo_arg);
+    let _socket = std::os::unix::net::UnixListener::bind(&socket_path).unwrap();
+    fs::write(&mode_path, "data").unwrap();
+    let mut permissions = fs::metadata(&mode_path).unwrap().permissions();
     permissions.set_mode(0o7600);
-    fs::set_permissions(mode_path, permissions).unwrap();
-    fs::create_dir_all(sticky_dir).unwrap();
-    let mut permissions = fs::metadata(sticky_dir).unwrap().permissions();
+    fs::set_permissions(&mode_path, permissions).unwrap();
+    fs::create_dir_all(&sticky_dir).unwrap();
+    let mut permissions = fs::metadata(&sticky_dir).unwrap().permissions();
     permissions.set_mode(0o1700);
-    fs::set_permissions(sticky_dir, permissions).unwrap();
+    fs::set_permissions(&sticky_dir, permissions).unwrap();
 
-    assert_eq!(run(&["-p", fifo_path], false).0, EXECUTION_SUCCESS);
-    assert_eq!(run(&["-S", socket_path], false).0, EXECUTION_SUCCESS);
-    assert_eq!(run(&["-u", mode_path], false).0, EXECUTION_SUCCESS);
-    assert_eq!(run(&["-g", mode_path], false).0, EXECUTION_SUCCESS);
-    assert_eq!(run(&["-k", sticky_dir], false).0, EXECUTION_SUCCESS);
-    assert_eq!(run(&["-b", mode_path], false).0, EXECUTION_FAILURE);
-    assert_eq!(run(&["-c", mode_path], false).0, EXECUTION_FAILURE);
-    assert_eq!(run(&["-p", mode_path], false).0, EXECUTION_FAILURE);
-    assert_eq!(run(&["-S", mode_path], false).0, EXECUTION_FAILURE);
+    assert_eq!(run(&["-p", &fifo_arg], false).0, EXECUTION_SUCCESS);
+    assert_eq!(run(&["-S", &socket_arg], false).0, EXECUTION_SUCCESS);
+    assert_eq!(run(&["-u", &mode_arg], false).0, EXECUTION_SUCCESS);
+    assert_eq!(run(&["-g", &mode_arg], false).0, EXECUTION_SUCCESS);
+    assert_eq!(run(&["-k", &sticky_arg], false).0, EXECUTION_SUCCESS);
+    assert_eq!(run(&["-b", &mode_arg], false).0, EXECUTION_FAILURE);
+    assert_eq!(run(&["-c", &mode_arg], false).0, EXECUTION_FAILURE);
+    assert_eq!(run(&["-p", &mode_arg], false).0, EXECUTION_FAILURE);
+    assert_eq!(run(&["-S", &mode_arg], false).0, EXECUTION_FAILURE);
 
-    let _ = fs::remove_file(fifo_path);
-    let _ = fs::remove_file(socket_path);
-    let _ = fs::remove_file(mode_path);
-    let _ = fs::remove_dir_all(sticky_dir);
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[cfg(unix)]
+fn path_arg(path: &PathBuf) -> String {
+    path.to_string_lossy().into_owned()
 }
 
 #[cfg(not(unix))]
