@@ -30,7 +30,11 @@ WSL_TESTS="/mnt/d/repo/rubash/target/upstream-tests"
 WSL_ENV="/tmp/bash-test-env"
 MODE="${1:?usage: run-83.sh <gen|check|live> [test-name ...]}"
 shift
-TIMEOUT_SECS="${RUN83_TIMEOUT:-15}"
+# Default timeout follows the authoritative live-A/B caliber: 150s. The old
+# 15s default truncated hangy groups (arith/read/printf/history) mid-output
+# and mis-counted them as DIFF, making check PASS counts incomparable with
+# the authoritative ledger. Override with RUN83_TIMEOUT=<secs>.
+TIMEOUT_SECS="${RUN83_TIMEOUT:-150}"
 
 OUT="$RESULTS/$MODE"
 mkdir -p "$OUT"
