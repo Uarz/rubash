@@ -233,7 +233,9 @@ impl Executor {
             [left, op, right, end]
                 if end == "]]"
                     && matches!(op.as_str(), "=" | "==" | "!=")
-                    && metadata.get(2).is_some_and(|m| !m.word_quotes.is_empty() || m.raw.contains('\\')) =>
+                    && metadata
+                        .get(2)
+                        .is_some_and(|m| !m.word_quotes.is_empty() || m.raw.contains('\\')) =>
             {
                 let left = self.expand_word(left);
                 let right = self.expand_word(right);
@@ -247,7 +249,9 @@ impl Executor {
             }
             [left, op, right]
                 if matches!(op.as_str(), "=" | "==" | "!=")
-                    && metadata.get(2).is_some_and(|m| !m.word_quotes.is_empty() || m.raw.contains('\\')) =>
+                    && metadata
+                        .get(2)
+                        .is_some_and(|m| !m.word_quotes.is_empty() || m.raw.contains('\\')) =>
             {
                 let left = self.expand_word(left);
                 let right = self.expand_word(right);
@@ -262,13 +266,17 @@ impl Executor {
             [left, op, right, end]
                 if end == "]]"
                     && op == "=~"
-                    && metadata.get(2).is_some_and(|m| !m.word_quotes.is_empty() || m.raw.contains('\\')) =>
+                    && metadata
+                        .get(2)
+                        .is_some_and(|m| !m.word_quotes.is_empty() || m.raw.contains('\\')) =>
             {
                 Some(self.conditional_quoted_regex_match_status(left, right, &metadata[2]))
             }
             [left, op, right]
                 if op == "=~"
-                    && metadata.get(2).is_some_and(|m| !m.word_quotes.is_empty() || m.raw.contains('\\')) =>
+                    && metadata
+                        .get(2)
+                        .is_some_and(|m| !m.word_quotes.is_empty() || m.raw.contains('\\')) =>
             {
                 Some(self.conditional_quoted_regex_match_status(left, right, &metadata[2]))
             }
@@ -434,9 +442,6 @@ impl Executor {
         let left_exp = self.expand_word(left);
         let right_exp = self.expand_word(right);
         let right_f = restore_numeric_decimal_regex_escapes(&right_exp);
-        if right_exp.contains("jbig2dec") || right_exp.contains("[^-]") || right.contains("jbig2dec") {
-            eprintln!("DBG regex normal left={:?} right_exp={:?} final={:?}", left_exp, right_exp, right_f);
-        }
         let left = left_exp;
         let right = right_f;
         let Ok(regex) = self.compile_conditional_regex(&right) else {

@@ -507,7 +507,11 @@ impl Printer {
             let test = arithmetic.test_metadata.expression.trim_start();
             let test = if test.trim().is_empty() { "1" } else { test };
             let update = arithmetic.update_metadata.expression.trim_start();
-            let update = if update.trim().is_empty() { "1" } else { update };
+            let update = if update.trim().is_empty() {
+                "1"
+            } else {
+                update
+            };
             self.cprintf("for ((");
             self.cprintf(init);
             self.cprintf("; ");

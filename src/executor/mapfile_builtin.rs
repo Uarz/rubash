@@ -99,12 +99,10 @@ impl Executor {
                 word if word.starts_with("-td") && word.len() > 3 => {
                     trim_newline = true;
                     delimiter = Some(
-                        crate::executor::substitution_metadata::shell_text_to_raw_bytes(
-                            &word[3..],
-                        )
-                        .first()
-                        .copied()
-                        .unwrap_or(0),
+                        crate::executor::substitution_metadata::shell_text_to_raw_bytes(&word[3..])
+                            .first()
+                            .copied()
+                            .unwrap_or(0),
                     );
                     index += 1;
                 }
@@ -364,12 +362,10 @@ impl Executor {
                 }
                 word if word.starts_with("-d") && word.len() > 2 => {
                     delimiter = Some(
-                        crate::executor::substitution_metadata::shell_text_to_raw_bytes(
-                            &word[2..],
-                        )
-                        .first()
-                        .copied()
-                        .unwrap_or(0),
+                        crate::executor::substitution_metadata::shell_text_to_raw_bytes(&word[2..])
+                            .first()
+                            .copied()
+                            .unwrap_or(0),
                     );
                     index += 1;
                 }

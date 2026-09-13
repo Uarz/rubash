@@ -393,7 +393,10 @@ fn take_file_signals(pid: u32) -> io::Result<Vec<i32>> {
 /// (measured 2026-09-12: 592 files -> 1.05ms per call). The pattern-limited
 /// query halves that; the caller gates the scan itself to every 64th poll
 /// so the per-command amortized cost is negligible.
-fn pending_signal_entries(dir: &std::path::Path, prefix: &str) -> io::Result<Vec<std::path::PathBuf>> {
+fn pending_signal_entries(
+    dir: &std::path::Path,
+    prefix: &str,
+) -> io::Result<Vec<std::path::PathBuf>> {
     scan_pending_signal_entries(dir, prefix)
 }
 
@@ -405,7 +408,7 @@ fn scan_pending_signal_entries(
     {
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::Foundation::{
-            ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, GetLastError, INVALID_HANDLE_VALUE,
+            GetLastError, ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, INVALID_HANDLE_VALUE,
         };
         use windows_sys::Win32::Storage::FileSystem::{
             FindClose, FindFirstFileW, FindNextFileW, WIN32_FIND_DATAW,
@@ -414,7 +417,11 @@ fn scan_pending_signal_entries(
         // The pattern is the directory plus a separator and "{prefix}*";
         // only fully written entries match (senders rename .part files into
         // place), and the .part exclusion below keeps that guarantee.
-        let mut pattern: Vec<u16> = dir.join(format!("{prefix}*")).as_os_str().encode_wide().collect();
+        let mut pattern: Vec<u16> = dir
+            .join(format!("{prefix}*"))
+            .as_os_str()
+            .encode_wide()
+            .collect();
         pattern.push(0);
 
         let mut data: WIN32_FIND_DATAW = unsafe { std::mem::zeroed() };

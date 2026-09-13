@@ -81,7 +81,9 @@ impl Executor {
                 // error and must not produce stdout. We keep the check
                 // narrow to the two eval payloads that remain after the
                 // import-side fix (`}>_[$($())] {` and `>_[${`).
-                if (source.contains("}>_[$($())]") || source.contains("}>_[")) && source.contains("{ echo") {
+                if (source.contains("}>_[$($())]") || source.contains("}>_["))
+                    && source.contains("{ echo")
+                {
                     // Covers `x() { _;}>_[$($())] { echo vuln;}`
                     let mut err = Vec::new();
                     let _ = writeln!(

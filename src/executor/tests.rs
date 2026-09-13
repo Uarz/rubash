@@ -57,15 +57,19 @@ mod unit_tests {
 
     #[test]
     fn export_assignment_arg_preserves_quoted_spaces() {
-        let tokens = tokenize(r#"export PATH="$PATH;C:\Program Files\Tool""#);
+        let tokens = tokenize(
+            r#"export RUBASH_TEST_TOOLPATH="$RUBASH_TEST_TOOLPATH;C:\Program Files\Tool""#,
+        );
         let ast = parse(&tokens);
         let mut executor = Executor::new();
-        executor.set_env("PATH", r"C:\Base");
+        executor.set_env("RUBASH_TEST_TOOLPATH", r"C:\Base");
 
-        executor.execute_ast(&ast).expect("export PATH assignment");
+        executor
+            .execute_ast(&ast)
+            .expect("export quoted assignment");
 
         assert_eq!(
-            executor.get_env("PATH"),
+            executor.get_env("RUBASH_TEST_TOOLPATH"),
             Some(r"C:\Base;C:\Program Files\Tool")
         );
     }

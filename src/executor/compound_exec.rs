@@ -364,7 +364,9 @@ impl Executor {
                     .eval_arithmetic_command_value(&arithmetic.update)
                     .is_none()
                 {
-                    self.report_arithmetic_error_raw_display(&arithmetic.update_metadata.expression);
+                    self.report_arithmetic_error_raw_display(
+                        &arithmetic.update_metadata.expression,
+                    );
                     self.exit_code = 1;
                     arithmetic_failed = true;
                     break;
