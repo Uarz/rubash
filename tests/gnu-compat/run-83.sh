@@ -123,6 +123,19 @@ SUMMARY="$OUT/SUMMARY.txt"
 : > "$SUMMARY"
 pass=0; fail=0; tmo=0; skip=0
 
+# Path-string normalization for diffing: baselines generated under WSL bake in
+# /mnt/<drive>/repo... spellings while Git Bash runs produce /<drive>/repo...,
+# so identical semantics differ byte-wise. Normalize BOTH sides to <REPO>
+# placeholders before diffing; raw files stay on disk for forensics.
+MNT_ROOT="$(printf '%s' "$ROOT_DIR" | sed 's|^/\([a-zA-Z]\)/|/mnt/\1/|')"
+normalize_side() { # $1=in  $2=out
+  sed -e 's|/mnt/\([a-zA-Z]\)/|/\1/|g' \
+      -e "s|$MNT_ROOT|<REPO>|g" \
+      -e "s|$ROOT_DIR|<REPO>|g" \
+      -e 's|/mnt/\([a-zA-Z]\)/repo/rubash|<REPO>|g' \
+      "$1" > "$2"
+}
+
 for name in "${names[@]}"; do
   case "$MODE" in
     gen)
@@ -155,7 +168,9 @@ for name in "${names[@]}"; do
         tmo=$((tmo + 1))
         continue
       fi
-      if diff -u "$RIGHT_DIR/$name.right" "$OUT/$name.rubash.out" > "$OUT/$name.diff" 2>&1; then
+      normalize_side "$RIGHT_DIR/$name.right" "$OUT/$name.right.norm"
+      normalize_side "$OUT/$name.rubash.out" "$OUT/$name.rubash.norm"
+      if diff -u "$OUT/$name.right.norm" "$OUT/$name.rubash.norm" > "$OUT/$name.diff" 2>&1; then
         echo "PASS  $name"
         pass=$((pass + 1))
       else
@@ -173,11 +188,13 @@ for name in "${names[@]}"; do
         tmo=$((tmo + 1))
         continue
       fi
-      if diff -q "$OUT/$name.rubash.out" "$OUT/$name.gnu.out" >/dev/null 2>&1; then
+      normalize_side "$OUT/$name.gnu.out" "$OUT/$name.gnu.norm"
+      normalize_side "$OUT/$name.rubash.out" "$OUT/$name.rubash.norm"
+      if diff -q "$OUT/$name.rubash.norm" "$OUT/$name.gnu.norm" >/dev/null 2>&1; then
         echo "PASS  $name"
         pass=$((pass + 1))
       else
-        diff -u "$OUT/$name.gnu.out" "$OUT/$name.rubash.out" > "$OUT/$name.diff"
+        diff -u "$OUT/$name.gnu.norm" "$OUT/$name.rubash.norm" > "$OUT/$name.diff"
         echo "DIFF  $name (rubash=$(wc -l < "$OUT/$name.rubash.out") gnu=$(wc -l < "$OUT/$name.gnu.out"))"
         fail=$((fail + 1))
       fi
