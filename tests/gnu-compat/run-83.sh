@@ -85,6 +85,15 @@ run_rubash() { # $1=name  $2=outfile
   # for names the shim does not ship (recho/zecho) while `ls` hit the
   # shim's own incompatible WinuxCmd ls and skewed every ls-based baseline.
   (cd "$CLEAN_TESTS" && export WSLENV=PATH PATH="$HELPERS_WIN:$PATH" THIS_SH="$RUBASH" && \
+    # Env hygiene: the WSL GNU side runs with a clean env, so any IDE/CI
+    # variables leaking into this session (CODEBUDDY_*, BASH_FUNC_* shims,
+    # BASH_ENV, ...) make the A/B asymmetric and skew varenv et al. Keep a
+    # minimal whitelist, unset everything else.
+    __allowed=" PATH HOME TMPDIR TEMP TMP SYSTEMROOT SYSTEMDRIVE WINDIR COMSPEC PATHEXT USERPROFILE APPDATA LOCALAPPDATA HOMEDRIVE HOMEPATH USERNAME COMPUTERNAME WSLENV THIS_SH " && \
+    while IFS= read -r __v; do
+      [ -n "$__v" ] || continue
+      case "$__allowed" in *" $__v "*) ;; *) unset "$__v" ;; esac
+    done < <(export -p | sed -n 's/^declare -x \([^= ]*\)=.*/\1/p') && \
     timeout "$TIMEOUT_SECS" "$RUBASH" "./$1.tests") > "$2" 2>&1
 }
 
