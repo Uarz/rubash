@@ -3,8 +3,9 @@
 #
 # Modes:
 #   gen    Regenerate tests/gnu-compat/upstream-rights/<name>.right from
-#          WSL GNU Bash 5.2.21 in a clean env (compiled recho/zecho/printenv,
-#          CRLF-fixed test copies, THIS_SH=bash). Needs WSL.
+#          WSL GNU Bash (5.3.0 as of 2026-09; historically 5.2.21) in a clean
+#          env (compiled recho/zecho/printenv, CRLF-fixed test copies,
+#          THIS_SH=bash). Needs WSL.
 #   check  Compare rubash against the committed .right files. No WSL needed;
 #          this is the fast dev/CI loop.
 #   live   rubash vs live WSL GNU Bash; for debugging the baseline itself.
@@ -25,8 +26,14 @@ CLEAN_TESTS="$ROOT_DIR/target/upstream-tests"
 RIGHT_DIR="$ROOT_DIR/tests/gnu-compat/upstream-rights"
 RESULTS="$ROOT_DIR/target/issue-suites/results"
 GNU_TIMEOUT_LIST="$ROOT_DIR/tests/gnu-compat/GNU-TIMEOUT.txt"
-HELPERS_WIN="/d/repo/rubash/tests/gnu-compat/helpers-win"   # POSIX style: see notes
-WSL_TESTS="/mnt/d/repo/rubash/target/upstream-tests"
+# Derive every cross-environment path from ROOT_DIR so the harness works from
+# any checkout/worktree, not just /d/repo/rubash.
+HELPERS_WIN="$ROOT_DIR/tests/gnu-compat/helpers-win"   # POSIX style: see notes
+ROOT_WSL="$(printf '%s' "$ROOT_DIR" | sed 's|^/\([a-zA-Z]\)/|/mnt/\1/|')"  # /d/x -> /mnt/d/x
+WSL_TESTS="$ROOT_WSL/target/upstream-tests"
+__drv="$(printf '%s' "${ROOT_DIR:1:1}" | tr '[:lower:]' '[:upper:]')"
+ROOT_WIN_FWD="${__drv}:$(printf '%s' "${ROOT_DIR:2}")"                     # /d/x -> D:/x
+ROOT_WIN_BS="${ROOT_WIN_FWD//\//\\}"                                       # D:\x
 WSL_ENV="/tmp/bash-test-env"
 MODE="${1:?usage: run-83.sh <gen|check|live> [test-name ...]}"
 shift
@@ -69,8 +76,8 @@ prepare_wsl_helpers() {
   # checked-in ELF is reused as-is when gcc output is identical enough.
   wsl bash -c "rm -rf $WSL_ENV && mkdir -p $WSL_ENV" 2>/dev/null
   for h in recho zecho printenv; do
-    wsl bash -c "gcc -O1 -o $WSL_ENV/$h /mnt/d/repo/rubash/third_party/bash/support/$h.c" 2>/dev/null ||
-      wsl bash -c "cp /mnt/d/repo/rubash/third_party/bash/support/$h $WSL_ENV/$h && chmod +x $WSL_ENV/$h" 2>/dev/null
+    wsl bash -c "gcc -O1 -o $WSL_ENV/$h $ROOT_WSL/third_party/bash/support/$h.c" 2>/dev/null ||
+      wsl bash -c "cp $ROOT_WSL/third_party/bash/support/$h $WSL_ENV/$h && chmod +x $WSL_ENV/$h" 2>/dev/null
   done
 }
 
@@ -133,14 +140,18 @@ SUMMARY="$OUT/SUMMARY.txt"
 pass=0; fail=0; tmo=0; skip=0
 
 # Path-string normalization for diffing: baselines generated under WSL bake in
-# /mnt/<drive>/repo... spellings while Git Bash runs produce /<drive>/repo...,
-# so identical semantics differ byte-wise. Normalize BOTH sides to <REPO>
-# placeholders before diffing; raw files stay on disk for forensics.
-MNT_ROOT="$(printf '%s' "$ROOT_DIR" | sed 's|^/\([a-zA-Z]\)/|/mnt/\1/|')"
+# /mnt/<drive>/... spellings while Git Bash runs produce /<drive>/... and the
+# shell under test may print Windows forms (D:/... or D:\...), so identical
+# semantics differ byte-wise. Normalize BOTH sides to <REPO> placeholders
+# before diffing; raw files stay on disk for forensics.
+ROOT_WIN_FWD_SED="$(printf '%s' "$ROOT_WIN_FWD" | sed 's/[&|\\]/\\&/g')"
+ROOT_WIN_BS_SED="$(printf '%s' "$ROOT_WIN_BS" | sed 's/[&|\\]/\\&/g')"
 normalize_side() { # $1=in  $2=out
   sed -e 's|/mnt/\([a-zA-Z]\)/|/\1/|g' \
-      -e "s|$MNT_ROOT|<REPO>|g" \
+      -e "s|$ROOT_WSL|<REPO>|g" \
       -e "s|$ROOT_DIR|<REPO>|g" \
+      -e "s|$ROOT_WIN_FWD|<REPO>|g" \
+      -e "s|$ROOT_WIN_BS_SED|<REPO>|g" \
       -e 's|/mnt/\([a-zA-Z]\)/repo/rubash|<REPO>|g' \
       "$1" > "$2"
 }
