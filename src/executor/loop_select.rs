@@ -13,8 +13,10 @@ impl Executor {
         }
 
         if !is_shell_name(&for_command.variable) {
+            // GNU execute_cmd.c reports via builtin_error with no command
+            // segment: "./errors.tests: line 37: `1': not a valid identifier".
             eprintln!(
-                "{}for: `{}`: not a valid identifier",
+                "{}`{}': not a valid identifier",
                 self.diagnostic_prefix(),
                 for_command.variable
             );

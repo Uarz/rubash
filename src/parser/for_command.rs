@@ -20,7 +20,16 @@ pub(super) fn parse_for_command(tokens: &[Token], start: usize) -> Option<(Comma
     }
 
     let variable_token = tokens.get(start + 1)?;
-    let variable = variable_token.value.clone();
+    // GNU keeps the loop variable name as the raw word text — quote removal
+    // does not apply to the name position (`for f\1 in ...` reports
+    // `f\1': not a valid identifier` against the raw spelling, errors.tests
+    // line 41; `select $1` already follows this rule). Valid identifiers
+    // never contain escapes, so raw == value for every accepted name.
+    let variable = if variable_token.raw.is_empty() {
+        variable_token.value.clone()
+    } else {
+        variable_token.raw.clone()
+    };
     if !matches!(
         tokens.get(start + 1)?.kind,
         TokenKind::Word | TokenKind::Variable | TokenKind::Keyword

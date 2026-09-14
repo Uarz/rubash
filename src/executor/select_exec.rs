@@ -12,8 +12,10 @@ impl Executor {
         select_command: &SelectCommand,
     ) -> Result<(), ExecuteError> {
         if !is_shell_name(&select_command.variable) {
+            // GNU execute_cmd.c reports via builtin_error with no command
+            // segment: "./errors.tests: line 50: `1': not a valid identifier".
             eprintln!(
-                "{}select: `{}`: not a valid identifier",
+                "{}`{}': not a valid identifier",
                 self.diagnostic_prefix(),
                 select_command.variable
             );
