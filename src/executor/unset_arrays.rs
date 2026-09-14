@@ -38,12 +38,22 @@ impl Executor {
         // variables and functions with nuanced attributes. Keep function table
         // and variable table behavior aligned for builtins6.sub.
         if unset_args_need_builtin_diagnostics(args) {
-            return crate::builtins::set::unset_with_stderr(
+            let status = crate::builtins::set::unset_with_stderr(
                 args.iter().map(String::as_str),
                 &mut self.env_vars,
                 stderr,
-            )
-            .map_err(ExecuteError::from);
+            )?;
+            // Convert error statuses > EX_SHERRBASE (256) and set
+            // special_builtin_failed (GNU execute_cmd.c:4886-4888).
+            return Ok(if status > 256 {
+                self.special_builtin_failed.set(true);
+                match status {
+                    258..=259 => 2,
+                    _ => 1,
+                }
+            } else {
+                status
+            });
         }
 
         let function_only = args.iter().any(|arg| arg == "-f");
@@ -132,11 +142,25 @@ impl Executor {
         for name in variable_args.iter().filter(|a| !a.starts_with('-')) {
             self.shell_state.variables.remove(name);
         }
-        Ok(if function_status != 0 {
+        let raw_status = if function_status != 0 {
             function_status
         } else {
             variable_status
-        })
+        };
+        // GNU execute_cmd.c:4886-4888: builtin_status converts error statuses
+        // (> EX_SHERRBASE = 256) to the final exit code, and sets
+        // special_builtin_failed for special builtins. EX_USAGE (258) → 2,
+        // EX_UTILERROR (263) → 1 (EXECUTION_FAILURE).
+        if raw_status > 256 {
+            self.special_builtin_failed.set(true);
+            let converted = match raw_status {
+                258..=259 => 2, // EX_USAGE, EX_BADSYNTAX → EX_BADUSAGE
+                _ => 1,         // EX_UTILERROR, etc. → EXECUTION_FAILURE
+            };
+            Ok(converted)
+        } else {
+            Ok(raw_status)
+        }
     }
 
     /// GNU builtins/set.def:990-1010 (unset_builtin): `unset -v` of a

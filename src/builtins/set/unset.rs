@@ -1,11 +1,23 @@
 use super::{
     ARRAY_VARS, ASSOC_VARS, DECLARED_UNSET_VARS, EXECUTION_FAILURE, EXECUTION_SUCCESS,
-    EXPORTED_VARS, EX_USAGE, INTEGER_VARS, LOWERCASE_VARS, NAMEREF_VARS, READONLY_VARS,
+    EXPORTED_VARS, INTEGER_VARS, LOWERCASE_VARS, NAMEREF_VARS, READONLY_VARS,
     UPPERCASE_VARS,
 };
 use std::collections::HashMap;
 use std::env;
 use std::io::{self, Write};
+
+/// GNU shell.h:76 `EX_UTILERROR = 263` — a Posix special builtin utility error
+/// (> EX_SHERRBASE = 256). `unset_builtin` returns this when `posix_utility_error`
+/// is set (readonly variable, invalid identifier, non-unsettable variable).
+/// execute_cmd.c:4888 then sets `special_builtin_failed`, causing a
+/// non-interactive POSIX shell to exit.
+pub(crate) const EX_UTILERROR: i32 = 263;
+
+/// GNU shell.h:71 `EX_USAGE = 258` — the pre-builtin_status usage error
+/// status (> EX_SHERRBASE = 256). `unset_builtin` returns this for invalid
+/// options; execute_cmd.c:4888 sets `special_builtin_failed`.
+const EX_USAGE_ORIG: i32 = 258;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct UnsetOptions {
@@ -46,8 +58,11 @@ where
 
     let mut status = EXECUTION_SUCCESS;
     for name in &args[first_name..] {
-        if unset_name(name, options, env_vars, stderr)? != EXECUTION_SUCCESS {
-            status = EXECUTION_FAILURE;
+        let name_status = unset_name(name, options, env_vars, stderr)?;
+        if name_status != EXECUTION_SUCCESS {
+            // Preserve error statuses > EX_SHERRBASE (256) so the executor can
+            // set special_builtin_failed; fall back to EXECUTION_FAILURE.
+            status = if name_status > 256 { name_status } else { EXECUTION_FAILURE };
         }
     }
 
@@ -87,7 +102,8 @@ where
                     other
                 )?;
                     writeln!(stderr, "unset: usage: unset [-f] [-v] [-n] [name ...]")?;
-                    return Ok(Err(EX_USAGE));
+                    // GNU set.def:855 returns EX_USAGE (258 > EX_SHERRBASE).
+                    return Ok(Err(EX_USAGE_ORIG));
                 }
             }
         }
@@ -149,7 +165,8 @@ where
             diagnostic_prefix(env_vars)
         );
         stderr.write_all(diagnostic.as_bytes())?;
-        return Ok(EXECUTION_FAILURE);
+        // GNU set.def:917-918 increments posix_utility_error → EX_UTILERROR.
+        return Ok(EX_UTILERROR);
     }
 
     // GNU builtins/set.def:990-1010 (unset_builtin): `unset -v` of a nameref
@@ -180,7 +197,8 @@ where
             "{}unset: {unset_name}: cannot unset",
             diagnostic_prefix(env_vars)
         )?;
-        return Ok(EXECUTION_FAILURE);
+        // GNU set.def:930-931 increments posix_utility_error → EX_UTILERROR.
+        return Ok(EX_UTILERROR);
     }
 
     if is_marked_variable(env_vars, READONLY_VARS, unset_name) {
@@ -189,7 +207,8 @@ where
             "{}unset: {unset_name}: cannot unset: readonly variable",
             diagnostic_prefix(env_vars)
         )?;
-        return Ok(EXECUTION_FAILURE);
+        // GNU set.def:965-966 increments posix_utility_error → EX_UTILERROR.
+        return Ok(EX_UTILERROR);
     }
 
     let unset_name = unset_name.to_string();

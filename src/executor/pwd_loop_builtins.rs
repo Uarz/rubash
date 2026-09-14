@@ -162,6 +162,11 @@ impl Executor {
         )?;
         self.write_buffered_builtin_output(cmd, &[], &stderr)?;
         self.exit_code = 2;
+        // GNU return.def:74 returns EX_USAGE (258 > EX_SHERRBASE=256), so
+        // execute_cmd.c:4888 sets special_builtin_failed for `return` (a
+        // POSIX special builtin). In POSIX non-interactive mode this causes
+        // the shell to exit (execute_cmd.c:1004-1017).
+        self.special_builtin_failed.set(true);
         Ok(())
     }
 }

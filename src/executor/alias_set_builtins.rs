@@ -71,6 +71,14 @@ impl Executor {
         )?;
         self.write_buffered_builtin_output(cmd, &stdout, &stderr)?;
         self.load_history_file_if_needed();
+        // GNU set.def returns EX_USAGE (258 > EX_SHERRBASE) for invalid
+        // options/option names; execute_cmd.c:4888 sets special_builtin_failed
+        // for `set` (a POSIX special builtin). Rubash's set_with_io returns
+        // the converted status (EX_BADUSAGE = 2); mark the failure so the
+        // POSIX non-interactive shell exits.
+        if status == crate::builtins::set::EX_USAGE {
+            self.special_builtin_failed.set(true);
+        }
         Ok(status)
     }
 

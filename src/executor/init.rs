@@ -271,6 +271,7 @@ impl Executor {
             last_command_substitution_status: Cell::new(None),
             current_shell_substitution_exit: Cell::new(None),
             last_command_substitution_parse_error: Cell::new(false),
+            special_builtin_failed: Cell::new(false),
             stdout_capture: None,
             stderr_capture: None,
             host_external_command_handler: None,

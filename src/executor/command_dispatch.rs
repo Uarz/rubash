@@ -24,6 +24,10 @@ impl Executor {
             eprintln!("{prefix}{text}");
         }
 
+        // GNU execute_cmd.c:4480 resets special_builtin_failed before each
+        // simple command; builtins that return EX_USAGE/EX_UTILERROR/etc.
+        // (> EX_SHERRBASE) set it during dispatch.
+        self.special_builtin_failed.set(false);
         let result = if self.reject_ambiguous_redirects(cmd)? {
             Ok(())
         } else {
@@ -39,6 +43,15 @@ impl Executor {
             self.restore_temporary_assignments(temporary_assignments);
         }
         self.update_underscore_parameter(cmd);
+        // GNU execute_cmd.c:1004-1017: in POSIX mode, a non-interactive shell
+        // exits when a special builtin returned an error status (> EX_SHERRBASE).
+        if result.is_ok()
+            && self.special_builtin_failed.get()
+            && self.posix_mode_enabled()
+            && self.env_vars.get("__RUBASH_INTERACTIVE").map(String::as_str) != Some("1")
+        {
+            return Err(ExecuteError::ExitCode(self.exit_code));
+        }
         if self.errexit_enabled() && self.errexit_is_active() && self.exit_code != 0 {
             return Err(ExecuteError::ExitCode(self.exit_code));
         }
