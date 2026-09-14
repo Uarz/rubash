@@ -9,10 +9,88 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
 
 use super::support_names::split_shell_path;
 
 pub(crate) const COMPATIBLE_SHELL_PATH_ENV: &str = "__RUBASH_COMPATIBLE_SHELL_PATH";
+
+/// Process-wide command-resolution cache.
+///
+/// GNU bash remembers executed commands in its hash table (findcmd.c +
+/// builtins/hash.def) so a repeated name never pays a full PATH scan twice.
+/// Rubash's user-visible `hash` table is serialized into env_vars, which is
+/// too slow to consult per lookup, so external resolution keeps a separate
+/// in-memory map here. On Windows a single miss costs tens of milliseconds
+/// (PATH entries x PATHEXT stat probes, plus a possible `winuxcmd help
+/// <name>` child process), so both hits and misses are cached.
+struct CommandLookupCache {
+    fingerprint: String,
+    results: HashMap<String, Option<PathBuf>>,
+}
+
+static COMMAND_LOOKUP_CACHE: OnceLock<Mutex<CommandLookupCache>> = OnceLock::new();
+
+fn command_lookup_cache() -> &'static Mutex<CommandLookupCache> {
+    COMMAND_LOOKUP_CACHE.get_or_init(|| {
+        Mutex::new(CommandLookupCache {
+            fingerprint: String::new(),
+            results: HashMap::new(),
+        })
+    })
+}
+
+/// Forget all remembered command locations (`hash -r`, tests).
+pub(crate) fn clear_command_lookup_cache() {
+    let mut cache = command_lookup_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    cache.results.clear();
+    cache.fingerprint.clear();
+}
+
+/// Environment values that can change a lookup result. The cache resets
+/// whenever any of them differ, which covers `PATH=`/`PATH` unset without
+/// needing a hook in the assignment path.
+fn command_lookup_fingerprint(env_vars: &HashMap<String, String>) -> String {
+    const ENV_KEYS: &[&str] = &[
+        "PATH",
+        "PATHEXT",
+        "TMPDIR",
+        "HOME",
+        "USERPROFILE",
+        "__RUBASH_SHELL_ROOT",
+        "WINUXSH_ROOT",
+        "RUBASH_ROOT",
+        "WINUXCMD",
+        "WINUXCMD_PATH",
+        "WINUXCMD_HOME",
+        COMPATIBLE_SHELL_PATH_ENV,
+        "RUBASH_COMPATIBLE_SHELL_PATH",
+    ];
+    // Fallbacks consulted via std::env::var when the env_vars key is absent
+    // (executable_extensions, windows_real_home_path).
+    const PROCESS_FALLBACK_KEYS: &[&str] = &["PATHEXT", "HOME", "USERPROFILE"];
+
+    let mut fingerprint = String::new();
+    for key in ENV_KEYS {
+        fingerprint.push_str(key);
+        fingerprint.push('=');
+        if let Some(value) = env_vars.get(*key) {
+            fingerprint.push_str(value);
+        }
+        fingerprint.push('\x1f');
+    }
+    for key in PROCESS_FALLBACK_KEYS {
+        if let Ok(value) = std::env::var(key) {
+            fingerprint.push_str(key);
+            fingerprint.push('~');
+            fingerprint.push_str(&value);
+            fingerprint.push('\x1e');
+        }
+    }
+    fingerprint
+}
 
 pub(crate) fn shell_path_entries(path: &str) -> Vec<String> {
     split_shell_path(path)
@@ -66,6 +144,40 @@ pub fn find_user_command(name: &str, env_vars: &HashMap<String, String>) -> Opti
     if name.is_empty() {
         return None;
     }
+
+    let fingerprint = command_lookup_fingerprint(env_vars);
+    {
+        let mut cache = command_lookup_cache()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if cache.fingerprint != fingerprint {
+            cache.results.clear();
+            cache.fingerprint = fingerprint.clone();
+        } else if let Some(result) = cache.results.get(name) {
+            return result.clone();
+        }
+    }
+
+    let result = find_user_command_uncached(name, env_vars);
+
+    let mut cache = command_lookup_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if cache.fingerprint != fingerprint {
+        cache.results.clear();
+        cache.fingerprint = fingerprint;
+    }
+    if cache.results.len() >= 4096 {
+        cache.results.clear();
+    }
+    cache.results.insert(name.to_string(), result.clone());
+    result
+}
+
+fn find_user_command_uncached(
+    name: &str,
+    env_vars: &HashMap<String, String>,
+) -> Option<PathBuf> {
 
     if has_path_separator(name) {
         if is_standard_unix_bash_path(name) {
@@ -634,7 +746,11 @@ fn windows_drive_and_home_path(path: &str) -> Option<(String, String)> {
 }
 
 fn executable_candidate(path: &Path, env_vars: &HashMap<String, String>) -> Option<PathBuf> {
-    if cfg!(windows) && path.extension().is_none() {
+    // Extensionless names probe every PATHEXT candidate before the bare file
+    // (native wrappers like `code.cmd` win over an extensionless `code`).
+    // The post-is_file pass below must not repeat that same scan on a miss.
+    let probed_extensions = cfg!(windows) && path.extension().is_none();
+    if probed_extensions {
         if let Some(candidate) = executable_extension_candidate(path, env_vars) {
             return Some(candidate);
         }
@@ -644,7 +760,7 @@ fn executable_candidate(path: &Path, env_vars: &HashMap<String, String>) -> Opti
         return Some(path.to_path_buf());
     }
 
-    if cfg!(windows) {
+    if cfg!(windows) && !probed_extensions {
         return executable_extension_candidate(path, env_vars);
     }
 
@@ -1192,6 +1308,28 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&target_dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_find_user_command_cache_invalidates_on_path_change() {
+        // The resolution cache keys results on a fingerprint of the env vars
+        // that affect lookup. Assigning PATH must reset it so a command that
+        // missed under the old PATH resolves under the new one.
+        let bin_dir = std::env::temp_dir().join("rubash-lookup-cache-path-change");
+        let _ = fs::remove_dir_all(&bin_dir);
+        fs::create_dir_all(&bin_dir).unwrap();
+        let marker = bin_dir.join("newtool.exe");
+        fs::write(&marker, "").unwrap();
+
+        let mut env_vars = HashMap::new();
+        env_vars.insert("PATH".to_string(), String::new());
+        assert_eq!(find_user_command("newtool", &env_vars), None);
+
+        env_vars.insert("PATH".to_string(), bin_dir.to_string_lossy().to_string());
+        assert_eq!(find_user_command("newtool", &env_vars), Some(marker));
+
+        let _ = fs::remove_dir_all(bin_dir);
     }
 
     #[cfg(windows)]

@@ -65,6 +65,10 @@ where
                 match option {
                     'r' => {
                         env_vars.remove(HASH_TABLE);
+                        // GNU `hash -r` forgets all remembered locations; the
+                        // internal lookup cache holds the same information, so
+                        // it must be dropped too or misses/hits stay stale.
+                        crate::executor::path::clear_command_lookup_cache();
                         return Ok(EXECUTION_SUCCESS);
                     }
                     'd' => delete = true,
