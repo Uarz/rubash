@@ -1,6 +1,6 @@
 # Rubash ↔ GNU Bash 兼容性权威状态（单一事实来源）
 
-> 最后核对日期：2026-09-11（全量 true-baseline 重跑，83 套件，GNU 5.3.0 契约）
+> 最后核对日期：2026-09-14（全量 true-baseline 重跑，83 套件，GNU 5.3.0 契约）
 > 核对方法：用 `./target/debug/rubash.exe` 直接跑 GNU 官方测试文件
 > `third_party/bash/tests/<name>.tests`，对比 GNU bash 的真实输出。
 > 基线约定（2026-09-09 起生效）：语义比对一律用 WSL GNU Bash 5.3.0
@@ -13,6 +13,9 @@
 > （如 `bash-test-update-20260829.md`、`rubash-compatibility-report.md` 曾宣称
 > “92%、仅 1 个 bug”）已被真实复现证伪，相关文件已于 2026-08-29 删除，
 > 不再作为判定依据。
+>
+> **最新台账（2026-09-14）：40 零差 / 43 有 DIFF / 总 1819 行**
+> （详见第二十一节）
 
 ## 一、总体结论
 
@@ -835,3 +838,109 @@ intl 计数 77 → 87 是**输出形状变粗**，不是语义回退：三个缺
 
 探针：`target/ansifull-probe.sh`、`target/ws-probe.sh`、`target/ws2-probe.sh`、
 `target/ff-probe.sh`、`target/bigarr-probe.sh`。
+
+## 二十一、2026-09-14 全量 true-baseline 重跑（83 套件，GNU 5.3.0 契约）
+
+### 测量方法
+
+`scripts/true-baseline.sh` 全量跑完 83 套件（WSL GNU Bash 5.3.0
+/usr/local/bin/bash 为契约基线，`__RUBASH_NO_UPSTREAM_SCRIPTS=1` 旁路仿真层，
+stdout-only diff）。台账产物：
+`target/issue-suites/results/true-baseline-ledger.log`。
+
+### 总结
+
+| 指标 | Sep 11 | **Sep 14（当前）** | 变化 |
+|---|---|---|---|
+| 零差套件 | 32 | **40** | +8 |
+| 有 DIFF 套件 | 51 | **43** | −8 |
+| 总 diff 行 | 2072 | **1819** | −12.2% |
+
+### 自 Sep 11 以来的关键改善（commit 链）
+
+- **globstar 101→4**：`0662ef9b` 命令查找缓存 + `8d326bb2` hashall/checkhash
+  绕过——剩余 4 行为 WinuxCmd `ls` 排序差异（平台归属，非 rubash 缺口）
+- **heredoc 4→0**：`c59c5da4` 命令替换管道走真实 executor
+- **braces 13→1**：算术/引号族连带收敛
+- **arith-for 18→1**、**arith 51→50**：`45a2beb8` + `7666a550` 算术错误前缀
+  按 `-c` vs 脚本模式区分（`__RUBASH_IS_C`）
+- **posixexp 21→12**、**exp 58→52**、**more-exp 33→38**：算术前缀修复连带
+- **shopt 13→13**（持平）、**histexp 6→1**：fc 族收敛残留
+- **dstack 50→0**、**dbg-support 323→0** 已在 v9 收敛，本次维持
+- **varenv 86→98**：+12 行新增差异（待分诊，疑与 `set -k` 路径或环境大小写
+  敏感性变化有关）
+- **jobs 37→53**：+16 行（待分诊）
+
+### 零差套件（40 个，完全通过 GNU 5.3.0 测试）
+
+appendop, attr, braces*, builtins, case, casemod, complete, comsub-eof,
+cprint, dbg-support, dbg-support2, dstack, dstack2, dynvar, exportfunc,
+extglob2, extglob3, func, getopts, glob-bracket, heredoc*, herestr, ifs,
+invert, invocation*, mapfile, nquote2, nquote3, nquote5, parser, posixexp2,
+posixpat, posixpipe, precedence, printf, quote, rsh, strip, tilde, tilde2,
+trap, vredir
+
+（* = 自 Sep 11 新转零差：braces, heredoc, dstack, quote, invocation 收敛
+至 ≤2 行；严格零差为 40 个）
+
+### 有 DIFF 套件（43 个，按差距分级）
+
+**Large（100+ 行）— 4 套件，占总 diff 38%**
+
+| 套件 | diff | 说明 |
+|---|---|---|
+| array | 239 | 复合赋值元素切分、readonly 声明、尺寸提示 |
+| assoc | 217 | 键切分/转义、kvpair/strict 双路径 |
+| history | 127 | 会话历史内容/时机、CRLF glue 伪影 |
+| nameref | 105 | 模式替换、declare -p 链追踪 |
+
+**Medium（50–99 行）— 8 套件**
+
+varenv(98), intl(75), alias(70), quotearray(65), new-exp(63), redir(61),
+jobs(53), exp(52)
+
+**Small（20–49 行）— 13 套件**
+
+arith(50), glob(48), nquote(47), comsub2(46), read(44), type(41),
+more-exp(38), errors(34), test(33), comsub(31), iquote(22), cond(21),
+rhs-exp(20)
+
+**Tiny（1–19 行）— 18 套件**
+
+extglob(16), shopt(13), nquote1(13), lastpipe(13), posixexp(12),
+comsub-posix(11), set-e(8), procsub(6), coproc(6), set-x(5), posix2(4),
+globstar(4), nquote4(2), invocation(2), ifs-posix(1), histexp(1),
+braces(1), arith-for(1)
+
+### 优先级建议（按影响 × 可行性）
+
+**P0（大族，根因已定位）**：
+1. `array` 239 — 复合赋值元素切分（P1 战役已定位四层根因，待分层重落）
+2. `assoc` 217 — 键切分/转义（与 array 同族，split_compound_assignment_words）
+3. `nameref` 105 — 模式替换已修，剩余 declare -p 链追踪
+
+**P1（中族，需分诊）**：
+4. `varenv` 98 — `set -k` 已修，+12 行新增待分诊（疑环境大小写敏感性）
+5. `history` 127 — 会话历史内容/时机，CRLF glue 伪影占比高
+6. `redir` 61 — fd 生命周期（与 procsub 同族）
+7. `new-exp` 63 — P2 战役 F1-F9 已分诊
+
+**P2（平台归属，非语义缺口）**：
+- `intl` 75 — locale 平台差异（`LC_ALL=C` 下 0 差已证明）
+- `globstar` 4 — WinuxCmd `ls` 排序差异
+- `jobs` 53 — 待分诊是否平台相关
+
+### 查找缓存与算术模式区分（本次新增修复）
+
+详见 `docs/command-lookup-cache-and-arith-mode-split.md`。要点：
+- `hash -d`/`-p`/bare rehash 同步内部缓存（`fccf98de`）
+- `hashing_enabled` 绕过 + `checkhash` stat 验证（`8d326bb2`）
+- temp env PATH 绕过（`7666a550`）
+- 算术错误前缀按 `-c` vs 脚本模式区分（`7666a550`，`__RUBASH_IS_C`）
+
+### 测量纪律
+
+- 唯一权威台账 = `scripts/true-baseline.sh` 全量输出
+- 禁止手搓探针测量套件数字（曾导致 −540 假改善）
+- 任何"已修复/仍残留"状态变更必须真实跑对应 GNU 测试文件复现
+- WSL GNU Bash 5.3.0（`/usr/local/bin/bash`）为唯一契约基线
