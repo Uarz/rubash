@@ -116,6 +116,15 @@ where
             }
             table.insert(name.to_string(), pathname.to_string());
             store_hash_table(env_vars, &table);
+            // GNU hash.def `hash -p PATH NAME`: phash_insert(name, pathname)
+            // makes subsequent lookups of `name` return `pathname` without a
+            // PATH scan. Mirror that in the in-memory lookup cache so
+            // find_user_command(name) returns the same path external_inner
+            // would execute. Convert through shell_path_to_windows so the
+            // cached PathBuf matches the Windows-native form produced by
+            // find_user_command_uncached.
+            let cached_path = crate::executor::path::shell_path_to_windows(pathname, env_vars);
+            crate::executor::path::set_command_lookup_cache(name, Some(cached_path));
             return Ok(EXECUTION_SUCCESS);
         }
         print = true;
@@ -127,6 +136,12 @@ where
             if table.remove(name).is_none() {
                 writeln!(stderr, "{}hash: {name}: not found", script_prefix())?;
                 status = EXECUTION_FAILURE;
+            } else {
+                // GNU hash.def `hash -d NAME`: phash_remove(w) drops the entry
+                // from the hash table. The internal lookup cache holds the
+                // same information and must be invalidated in lockstep or the
+                // next `find_user_command(name)` returns the stale path.
+                crate::executor::path::remove_command_lookup_cache(name);
             }
         }
         store_hash_table(env_vars, &table);
@@ -172,6 +187,36 @@ where
         return Ok(EXECUTION_SUCCESS);
     }
 
+    // GNU hash.def bare-name form: `hash NAME...` re-resolves each NAME
+    // against PATH and re-inserts the result. The flow is phash_remove(name)
+    // + find_user_command(name) + phash_insert(name, path); a name that does
+    // not resolve reports "hash: NAME: not found" and sets failure.
+    if !names.is_empty() {
+        let mut status = EXECUTION_SUCCESS;
+        for name in names {
+            // Drop any stale remembered location so the PATH scan is
+            // authoritative.
+            crate::executor::path::remove_command_lookup_cache(name);
+            match crate::executor::path::find_user_command(name, env_vars) {
+                Some(path) => {
+                    let path_string = path.to_string_lossy().to_string();
+                    table.insert(name.to_string(), path_string.clone());
+                    // find_user_command already inserted the result into the
+                    // internal cache, so no extra set_command_lookup_cache is
+                    // needed here.
+                    let _ = path_string;
+                }
+                None => {
+                    table.remove(name);
+                    writeln!(stderr, "{}hash: {name}: not found", script_prefix())?;
+                    status = EXECUTION_FAILURE;
+                }
+            }
+        }
+        store_hash_table(env_vars, &table);
+        return Ok(status);
+    }
+
     Ok(EXECUTION_SUCCESS)
 }
 
@@ -179,12 +224,19 @@ pub(crate) fn set_hashed_path(env_vars: &mut HashMap<String, String>, name: &str
     let mut table = hash_table(env_vars);
     table.insert(name.to_string(), path.to_string());
     store_hash_table(env_vars, &table);
+    // BASH_CMDS[name]=value mirrors `hash -p value name`; keep the internal
+    // lookup cache in sync so find_user_command(name) returns value.
+    let cached_path = crate::executor::path::shell_path_to_windows(path, env_vars);
+    crate::executor::path::set_command_lookup_cache(name, Some(cached_path));
 }
 
 pub(crate) fn remove_hashed_path(env_vars: &mut HashMap<String, String>, name: &str) {
     let mut table = hash_table(env_vars);
     table.remove(name);
     store_hash_table(env_vars, &table);
+    // unset 'BASH_CMDS[name]' mirrors `hash -d name`; drop the internal cache
+    // entry so the next lookup re-scans PATH.
+    crate::executor::path::remove_command_lookup_cache(name);
 }
 
 pub(crate) fn hashed_path(env_vars: &HashMap<String, String>, name: &str) -> Option<String> {

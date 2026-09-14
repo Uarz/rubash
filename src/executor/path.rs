@@ -49,6 +49,37 @@ pub(crate) fn clear_command_lookup_cache() {
     cache.fingerprint.clear();
 }
 
+/// Forget one remembered command location.
+///
+/// GNU `hash -d NAME` (builtins/hash.def) calls `phash_remove(w)` to drop a
+/// single entry from the hash table. Rubash keeps the user-visible hash table
+/// in `__RUBASH_HASH_TABLE` and the in-memory lookup cache here; both must be
+/// invalidated together or the next `find_user_command(name)` returns the
+/// stale cached path.
+pub(crate) fn remove_command_lookup_cache(name: &str) {
+    let mut cache = command_lookup_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    cache.results.remove(name);
+}
+
+/// Insert or override one remembered command location.
+///
+/// GNU `hash -p PATH NAME` (builtins/hash.def) calls `phash_insert(w,
+/// pathname)` so the next lookup of `name` returns `pathname` without a PATH
+/// scan. `hash NAME` rehash also lands here after a fresh PATH search. The
+/// internal cache must mirror the user-visible table or `find_user_command`
+/// keeps returning the old result.
+pub(crate) fn set_command_lookup_cache(name: &str, path: Option<PathBuf>) {
+    let mut cache = command_lookup_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if cache.results.len() >= 4096 {
+        cache.results.clear();
+    }
+    cache.results.insert(name.to_string(), path);
+}
+
 /// Environment values that can change a lookup result. The cache resets
 /// whenever any of them differ, which covers `PATH=`/`PATH` unset without
 /// needing a hook in the assignment path.
@@ -174,11 +205,7 @@ pub fn find_user_command(name: &str, env_vars: &HashMap<String, String>) -> Opti
     result
 }
 
-fn find_user_command_uncached(
-    name: &str,
-    env_vars: &HashMap<String, String>,
-) -> Option<PathBuf> {
-
+fn find_user_command_uncached(name: &str, env_vars: &HashMap<String, String>) -> Option<PathBuf> {
     if has_path_separator(name) {
         if is_standard_unix_bash_path(name) {
             if let Some(found) = configured_compatible_shell(env_vars) {
