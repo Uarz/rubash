@@ -289,12 +289,13 @@ impl ConditionalArithParser<'_> {
                             Some(super::super::ArithmeticErrorCategory::DivisionByZero);
                         return None;
                     }
+                    // GNU expr.c:923-926: INTMAX_MIN % -1 is 0 (avoids
+                    // SIGFPE from undefined behavior on x86).
                     if value == i128::from(i64::MIN) && rhs == -1 {
-                        self.error_category =
-                            Some(super::super::ArithmeticErrorCategory::EvaluatorFailure);
-                        return None;
+                        value = 0;
+                    } else {
+                        value %= rhs;
                     }
-                    value %= rhs;
                 }
                 _ => return Some(value),
             }
