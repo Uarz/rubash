@@ -10,6 +10,44 @@ impl Executor {
         // TODO(builtins/declare.def/execute_cmd.c): Bash prints the stored
         // function COMMAND tree. Rubash currently stores only parsed command
         // bodies, so render the simple function form used by builtins6.sub.
+        // GNU declare.def declare_invalid_opts: att_function combined with
+        // att_array/att_assoc/att_integer/att_nameref is a usage error.
+        let function_flag_on = args
+            .iter()
+            .any(|arg| arg.starts_with('-') && arg.contains('f'));
+        if function_flag_on {
+            let mut bad_opt: Option<&str> = None;
+            for arg in args {
+                if !arg.starts_with('-') {
+                    continue;
+                }
+                if arg.contains('n') {
+                    bad_opt = Some("-n");
+                    break;
+                }
+                if arg.contains('i') {
+                    bad_opt = Some("-i");
+                    break;
+                }
+                if arg.contains('A') {
+                    bad_opt = Some("-A");
+                    break;
+                }
+                if arg.contains('a') {
+                    bad_opt = Some("-a");
+                    break;
+                }
+            }
+            if let Some(opt) = bad_opt {
+                writeln!(
+                    stderr,
+                    "{}declare: {}: invalid option",
+                    self.diagnostic_prefix(),
+                    opt
+                )?;
+                return Ok(1);
+            }
+        }
         let names: Vec<&str> = args
             .iter()
             .filter(|arg| !arg.starts_with('-') && !arg.starts_with('+'))
@@ -34,6 +72,9 @@ impl Executor {
         let readonly = args
             .iter()
             .any(|arg| arg.starts_with('-') && arg.contains('r'));
+        let clear_readonly = args
+            .iter()
+            .any(|arg| arg.starts_with('+') && arg.contains('r'));
         // GNU declare.def declares -t on functions: set/clear the trace
         // attribute (trace_p(var) in execute_cmd.c). A traced function
         // inherits the DEBUG and RETURN traps even with functrace off.
@@ -47,6 +88,7 @@ impl Executor {
             .iter()
             .any(|arg| arg.starts_with('-') && arg.contains('p'));
         let exported_functions = marked_env_names(&self.env_vars, EXPORTED_FUNCTIONS);
+        let readonly_functions = marked_env_names(&self.env_vars, READONLY_FUNCTIONS);
         if names.is_empty() {
             let mut functions: Vec<_> = self.functions.iter().collect();
             functions.sort_by(|(left, _), (right, _)| left.cmp(right));
@@ -54,12 +96,18 @@ impl Executor {
                 if exported_only && !exported_functions.iter().any(|exported| *exported == *name) {
                     continue;
                 }
+                if readonly && !readonly_functions.iter().any(|rn| *rn == *name) {
+                    continue;
+                }
                 if function_names_only {
-                    if exported_only {
-                        writeln!(stdout, "declare -fx {name}")?;
-                    } else {
-                        writeln!(stdout, "declare -f {name}")?;
+                    let mut flags = String::from("-f");
+                    if readonly {
+                        flags.push('r');
                     }
+                    if exported_only {
+                        flags.push('x');
+                    }
+                    writeln!(stdout, "declare {flags} {name}")?;
                 } else {
                     self.write_function_definition(name, &body.commands, exported_only, stdout)?;
                 }
@@ -80,6 +128,18 @@ impl Executor {
                 continue;
             };
             let is_exported = exported_functions.iter().any(|exported| exported == name);
+            let is_readonly = readonly_functions.iter().any(|rn| rn == name);
+            // GNU declare.def: clearing readonly on a readonly function is
+            // an error ("readonly function"), not a silent success.
+            if clear_readonly && is_readonly {
+                writeln!(
+                    stderr,
+                    "{}declare: {name}: readonly function",
+                    self.diagnostic_prefix()
+                )?;
+                status = 1;
+                continue;
+            }
             if exported_only && !is_exported && !set_export_attribute {
                 continue;
             }
