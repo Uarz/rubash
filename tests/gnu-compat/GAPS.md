@@ -115,6 +115,10 @@ arith 措辞、heredoc EOF 警告行号、trap 参数校验、invalid identifier
 - 套件：`tests/errors.tests`（167/183）
 - 现象：`` `1': not a valid identifier ``、`` `f\1': not a valid identifier ``、
   `` `invalid-name': not a valid identifier `` 在 unset/export/readonly 等内建中缺失。
+- 已修（2026-09-14，`ee76c100`）：for/select 循环变量诊断去掉 `for:`/`select:`
+  段、变量名保留 raw 词素（不做引号去除）。unset/export/readonly/declare/
+  complete 的 invalid identifier 此前已实现且与 GNU 一致（`unset 1abc`
+  在 GNU 5.3.0 静默，rubash 同）。
 - GNU 源码：`builtins/common.c:210`；`error.c:461`；`execute_cmd.c:2379`。
 
 ### G15 heredoc/comsub EOF 警告
