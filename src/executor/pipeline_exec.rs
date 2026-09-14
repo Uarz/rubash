@@ -656,7 +656,16 @@ impl Executor {
     ) -> Result<Option<Vec<(String, String, i32)>>, ExecuteError> {
         if commands.len() < 2
             || self.stderr_capture.is_some()
-            || self.stdout_capture.is_some()
+            // NOTE: stdout_capture (command substitution) is intentionally NOT a
+            // bail-out here. External-only pipelines inside `$(...)` must still
+            // run concurrently with real OS pipes between stages (GNU bash
+            // pipelines everything concurrently). The final stage's output is
+            // routed into the substitution capture by write_pipeline_output,
+            // and intermediate stages stay on OS pipes — which is what winuxcmd
+            // commands such as `find` require (issue #76: a `$(find ... | wc -l)`
+            // substitution previously fell back to the sequential stage path,
+            // whose per-stage capture lost the external command's output, so the
+            // pipeline silently yielded 0).
             || commands.iter().enumerate().any(|(index, command)| {
                 command.time_command.is_some()
                     || command.brace_group.is_some()
@@ -673,8 +682,8 @@ impl Executor {
                         && index != 0)
                     || !command.assignments.is_empty()
                     || !command.process_substitutions.is_empty()
-                    || command.pipe == Some(2)
-            })
+            || command.pipe == Some(2)
+        })
         {
             return Ok(None);
         }
@@ -857,7 +866,16 @@ impl Executor {
     ) -> Result<Option<Vec<(String, String, i32)>>, ExecuteError> {
         if commands.len() < 2
             || self.stderr_capture.is_some()
-            || self.stdout_capture.is_some()
+            // NOTE: stdout_capture (command substitution) is intentionally NOT a
+            // bail-out here. External-only pipelines inside `$(...)` must still
+            // run concurrently with real OS pipes between stages (GNU bash
+            // pipelines everything concurrently). The final stage's output is
+            // routed into the substitution capture by write_pipeline_output,
+            // and intermediate stages stay on OS pipes — which is what winuxcmd
+            // commands such as `find` require (issue #76: a `$(find ... | wc -l)`
+            // substitution previously fell back to the sequential stage path,
+            // whose per-stage capture lost the external command's output, so the
+            // pipeline silently yielded 0).
             || commands.iter().enumerate().any(|(index, command)| {
                 command.time_command.is_some()
                     || command.brace_group.is_some()
@@ -874,8 +892,8 @@ impl Executor {
                         && index != 0)
                     || !command.assignments.is_empty()
                     || !command.process_substitutions.is_empty()
-                    || command.pipe == Some(2)
-            })
+            || command.pipe == Some(2)
+        })
         {
             return Ok(None);
         }

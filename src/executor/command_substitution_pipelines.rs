@@ -519,18 +519,19 @@ impl Executor {
                     output
                 }),
             _ => {
-                // Generic external command first stage
-                let cmd_name = self.expand_word(&words[0]);
-                let expanded_args: Vec<String> =
-                    words[1..].iter().map(|w| self.expand_word(w)).collect();
-                use std::process::{Command, Stdio};
-                let output = Command::new(&cmd_name)
-                    .args(&expanded_args)
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::null())
-                    .output()
-                    .ok()?;
-                Some(bytes_to_shell_text(&output.stdout))
+                // Generic external command first stage. Do NOT spawn it here.
+                // This substitution fast path would need the real executor's
+                // full child environment (apply_env_command_environment sets
+                // every shell var); apply_child_environment only forwards
+                // exported/marked vars, and with that stripped environment a
+                // winuxcmd command such as `find` misbehaves and writes its
+                // output to stderr, which the capture discards — so
+                // `$(find ... | wc -l)` silently yields 0 (issue #76). Falling
+                // through lets command_list_substitution_output run the
+                // pipeline through the real executor, which captures it
+                // correctly. Builtin first stages (echo/printf/cat/command)
+                // above keep using this fast path.
+                return None;
             }
         }
     }
