@@ -272,6 +272,7 @@ impl Executor {
                                 let message = crate::executor::arithmetic::arithmetic_error_message(
                                     &expression,
                                     true,
+                                    &self.env_vars,
                                 )
                                 .unwrap_or_else(|| {
                                     format!(

@@ -292,12 +292,16 @@ impl Executor {
             // silently producing nothing, and abandons the enclosing command
             // list (status 1; GNU probe d2: `echo $((1/0)); echo after` never
             // prints "after").
-            let message = crate::executor::arithmetic::arithmetic_error_message(&expression, true)
-                .unwrap_or_else(|| {
-                    format!(
-                        "{expression}: syntax error in expression (error token is \"{expression}\")"
-                    )
-                });
+            let message = crate::executor::arithmetic::arithmetic_error_message(
+                &expression,
+                true,
+                &self.env_vars,
+            )
+            .unwrap_or_else(|| {
+                format!(
+                    "{expression}: syntax error in expression (error token is \"{expression}\")"
+                )
+            });
             let actual_fatal = self.arithmetic_last_error_category.take().is_some();
             if !actual_fatal
                 && !crate::executor::arithmetic::arithmetic_expansion_is_fatal(&expression)

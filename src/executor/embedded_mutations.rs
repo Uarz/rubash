@@ -485,6 +485,7 @@ impl Executor {
                                             crate::executor::arithmetic::arithmetic_error_message(
                                                 &expression,
                                                 true,
+                                                &self.env_vars,
                                             )
                                         {
                                             eprintln!("{}{}", self.diagnostic_prefix(), message);

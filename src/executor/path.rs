@@ -176,11 +176,19 @@ pub fn find_user_command(name: &str, env_vars: &HashMap<String, String>) -> Opti
         return None;
     }
 
-    // GNU findcmd.c:356-365 + variables.c: `hashing_enabled` is the runtime
-    // mirror of `set -h` / `set +h` (the `hashall` shell option). When it is
-    // off, search_for_command skips phash_search AND phash_insert entirely,
-    // so every lookup pays a full PATH scan and nothing is remembered.
+    // GNU findcmd.c:356-365: `hashing_enabled` is the runtime mirror of
+    // `set -h` / `set +h` (the `hashall` shell option). When it is off,
+    // search_for_command skips phash_search AND phash_insert entirely, so
+    // every lookup pays a full PATH scan and nothing is remembered.
     if !crate::builtins::set::shell_option_enabled(env_vars, "hashall") {
+        return find_user_command_uncached(name, env_vars);
+    }
+
+    // GNU findcmd.c:356-359: if PATH is in the temporary command environment
+    // (PATH=foo cmd), search_for_command skips phash_search AND phash_insert
+    // entirely. Rubash tags temp-PATH state with __RUBASH_TEMP_PATH (set in
+    // apply_temporary_assignments, cleared in restore_temporary_assignments).
+    if env_vars.get("__RUBASH_TEMP_PATH").map(String::as_str) == Some("1") {
         return find_user_command_uncached(name, env_vars);
     }
 

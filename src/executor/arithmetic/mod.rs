@@ -844,17 +844,23 @@ fn normalize_arithmetic_quotes(input: &str) -> String {
 /// failed to evaluate (`$(( 1.5 ))`, `$(( 2 ** -1 ))`, division by zero, ...).
 /// Rubash used to silently drop these; Bash reports them on stderr with rc=1.
 ///
-/// GNU bash 5.3.0 reports PLAIN `syntax error` in the expansion (`$(( ))`)
-/// context — verified WSL 5.3.0(1): `echo $(( 4+ ))` →
-/// `bash: line 1: 4+ : syntax error: operand expected (error token is "+ ")`,
-/// `echo $(( 1.5 ))` → `syntax error: invalid arithmetic operator`.
-/// Only command contexts (`(( ))`, `let`, `for ((;;))`, `[[ ]]`) carry the
-/// `arithmetic` prefix — see [`arithmetic_command_error_message`].
+/// GNU bash 5.3.0(1) has an invocation-mode split for `$(( ))` expansion
+/// diagnostics that is observable only in the expansion context, not in
+/// command contexts:
+///   - `bash script.sh`  → `arithmetic syntax error: ...`
+///   - `bash -c '...'`   → `syntax error: ...`
+/// Command contexts (`(( ))`, `let`, `for ((;;))`, `[[ ]]`) always carry the
+/// `arithmetic` prefix regardless of mode. Rubash tags `-c` invocations with
+/// `__RUBASH_IS_C=1` (main.rs:253), so an expansion-context diagnostic
+/// mirrors GNU only when that flag is absent. See
+/// [`arithmetic_command_error_message`] for the always-`arithmetic` variant.
 pub(in crate::executor) fn arithmetic_error_message(
     expression: &str,
     trailing_space: bool,
+    env_vars: &HashMap<String, String>,
 ) -> Option<String> {
-    arithmetic_error_message_ctx(expression, trailing_space, false)
+    let command_context = env_vars.get("__RUBASH_IS_C").map(String::as_str) != Some("1");
+    arithmetic_error_message_ctx(expression, trailing_space, command_context)
 }
 
 /// Command-context variant: `(( ))` / `let` / `[[ ]]` diagnostics carry an

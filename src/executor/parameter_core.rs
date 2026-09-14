@@ -162,7 +162,7 @@ impl Executor {
             {
                 self.arithmetic_fatal_error.set(true);
                 if !self.arithmetic_expansion_error.replace(true) {
-                    let message = crate::executor::arithmetic::arithmetic_error_message(expression, true)
+                    let message = crate::executor::arithmetic::arithmetic_error_message(expression, true, &self.env_vars)
                         .unwrap_or_else(|| format!("{expression}: syntax error in expression (error token is \"{expression}\")"));
                     eprintln!("{}{}", self.diagnostic_prefix(), message);
                 }

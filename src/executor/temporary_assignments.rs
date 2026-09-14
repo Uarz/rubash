@@ -33,6 +33,29 @@ impl Executor {
                 self.shell_state.variables.get(EXPORTED_VARS).cloned(),
             ));
         }
+        // GNU findcmd.c:356-365: a PATH in the temporary command environment
+        // (PATH=foo cmd) bypasses the hash table entirely. Rubash's lookup
+        // cache keys on a PATH fingerprint, which already prevents temp-PATH
+        // results from polluting the normal cache, but GNU also skips the
+        // hash read so a stale remembered path is never returned for a
+        // temp-PATH command. Tag the temp-PATH state here so find_user_command
+        // can bypass the cache; the tag is cleared in restore.
+        let has_temp_path = assignments.iter().any(|(name, _)| {
+            let base = name.split('[').next().unwrap_or(name);
+            base == "PATH"
+        });
+        if has_temp_path {
+            previous.push((
+                "__RUBASH_TEMP_PATH".to_string(),
+                self.env_vars.get("__RUBASH_TEMP_PATH").cloned(),
+                self.shell_state
+                    .variables
+                    .get("__RUBASH_TEMP_PATH")
+                    .cloned(),
+            ));
+            self.env_vars
+                .insert("__RUBASH_TEMP_PATH".to_string(), "1".to_string());
+        }
         for (name, value) in assignments {
             let expanded_value = self.expand_assignment_value(value);
             let (base_name, _) = assignment_name_and_append(name);
