@@ -953,6 +953,8 @@ impl Executor {
         if narrow
             && !alternate.contains("$@")
             && !alternate.contains("$*")
+            && !alternate.contains("${*")
+            && !alternate.contains("${@")
             && !alternate.contains('"')
             && !alternate.contains('\'')
             && !parameter_word_has_escaped_whitespace(alternate)
@@ -1023,8 +1025,47 @@ impl Executor {
                 None => {}
             }
         }
-        let positional_at =
-            alternate.contains("$@") || alternate.contains("${@}") || alternate.contains("$*");
+        // GNU subst.c param_expand: the alternate word of ${param-OPword}
+        // expands $@/$* with PF_ASSIGNRHS. For modified forms like ${@/} or
+        // ${*,,}, a non-null IFS joins the positionals first (space for $@,
+        // IFS[0] for $*), applies the modification to the joined string, then
+        // field-splits per the ambient IFS (string_list_dollar_at /
+        // string_list_dollar_star with PF_ASSIGNRHS, subst.c:7840-7860). A
+        // null IFS leaves $@ on the per-parameter path (the re-parse path
+        // below), which already matches GNU.
+        if !outer_double_quoted
+            && !self.positional_params.is_empty()
+            && (alternate.starts_with("${@") || alternate.starts_with("${*"))
+            && alternate.ends_with('}')
+        {
+            if let Some(ifs) = self.env_vars.get("IFS").map(String::as_str) {
+                if !ifs.is_empty() {
+                    let inner = &alternate[2..alternate.len() - 1];
+                    let separator = if inner.starts_with('*') {
+                        self.ifs_first_char_separator()
+                    } else {
+                        " ".to_string()
+                    };
+                    let joined = self.positional_params.join(&separator);
+                    let saved = std::mem::take(&mut self.positional_params);
+                    self.positional_params = vec![joined];
+                    let values =
+                        self.quoted_positional_at_word_values(alternate, None);
+                    self.positional_params = saved;
+                    if let Some(values) = values {
+                        let result: Vec<String> = values
+                            .into_iter()
+                            .flat_map(|value| field_split_values_with_ifs(&value, Some(ifs)))
+                            .collect();
+                        return Some(result);
+                    }
+                }
+            }
+        }
+        let positional_at = alternate.contains("$@")
+            || alternate.contains("${@")
+            || alternate.contains("$*")
+            || alternate.contains("${*");
         let posix_literal_quotes = self.posix_mode_enabled()
             && alternate.starts_with("\"")
             && alternate.ends_with("\"")
@@ -1085,9 +1126,9 @@ impl Executor {
         }
         let inner = &braced[2..braced.len() - 1];
         if !inner.contains("$@")
-            && !inner.contains("${@}")
+            && !inner.contains("${@")
             && !inner.contains("$*")
-            && !inner.contains("${*}")
+            && !inner.contains("${*")
         {
             return None;
         }
@@ -1184,9 +1225,9 @@ impl Executor {
         let inner = &braced[2..braced.len() - 1];
         // Quoted-at alternates keep their dedicated word-boundary paths.
         if inner.contains("$@")
-            || inner.contains("${@}")
+            || inner.contains("${@")
             || inner.contains("$*")
-            || inner.contains("${*}")
+            || inner.contains("${*")
         {
             return None;
         }
