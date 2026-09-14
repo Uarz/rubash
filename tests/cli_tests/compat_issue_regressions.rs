@@ -1665,10 +1665,12 @@ fn backtick_command_substitution_preserves_raw_c0_variable_payload() {
     assert_eq!(String::from_utf8_lossy(&output.stderr), "");
 }
 
-// GNU Bash 5.2.21 expr.c: an expression ending right after an operator has
-// no right-hand operand.  exp0 reports "arithmetic syntax error: operand
-// expected" and evalerror prints the suffix of the expression from the
-// start of that operator token (lasttp).  `j=` used to be silent in rubash.
+// GNU Bash expr.c: an expression ending right after an operator has
+// no right-hand operand.  In the $(( )) expansion context 5.3.0(1) reports
+// plain "syntax error: operand expected" (verified WSL 5.3.0(1); command
+// contexts ((/let/[[ add the "arithmetic" prefix), and evalerror prints the
+// suffix of the expression from the start of that operator token (lasttp).
+// `j=` used to be silent in rubash.
 #[test]
 fn arithmetic_empty_assignment_rhs_reports_operand_expected() {
     let output = Command::new(env!("CARGO_BIN_EXE_rubash"))
@@ -1679,7 +1681,7 @@ fn arithmetic_empty_assignment_rhs_reports_operand_expected() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("j=: arithmetic syntax error: operand expected (error token is \"=\")"),
+        stderr.contains("j=: syntax error: operand expected (error token is \"=\")"),
         "stderr: {stderr}"
     );
 }
@@ -1714,7 +1716,7 @@ fn arithmetic_trailing_increment_after_number_token_is_single_plus() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("7++: arithmetic syntax error: operand expected (error token is \"+\")"),
+        stderr.contains("7++: syntax error: operand expected (error token is \"+\")"),
         "stderr: {stderr}"
     );
 }
@@ -1727,23 +1729,23 @@ fn arithmetic_trailing_operator_tokens_match_gnu() {
     for (expr, expected) in [
         (
             "3**",
-            "3**: arithmetic syntax error: operand expected (error token is \"**\")",
+            "3**: syntax error: operand expected (error token is \"**\")",
         ),
         (
             "7<=",
-            "7<=: arithmetic syntax error: operand expected (error token is \"<=\")",
+            "7<=: syntax error: operand expected (error token is \"<=\")",
         ),
         (
             "7&&",
-            "7&&: arithmetic syntax error: operand expected (error token is \"&&\")",
+            "7&&: syntax error: operand expected (error token is \"&&\")",
         ),
         (
             "j==",
-            "j==: arithmetic syntax error: operand expected (error token is \"==\")",
+            "j==: syntax error: operand expected (error token is \"==\")",
         ),
         (
             "j+=",
-            "j+=: arithmetic syntax error: operand expected (error token is \"+=\")",
+            "j+=: syntax error: operand expected (error token is \"+=\")",
         ),
         (
             "7+=",

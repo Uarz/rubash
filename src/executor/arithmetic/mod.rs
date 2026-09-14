@@ -844,15 +844,17 @@ fn normalize_arithmetic_quotes(input: &str) -> String {
 /// failed to evaluate (`$(( 1.5 ))`, `$(( 2 ** -1 ))`, division by zero, ...).
 /// Rubash used to silently drop these; Bash reports them on stderr with rc=1.
 ///
-/// GNU bash 5.3.0 uses the `arithmetic syntax error` prefix in both expansion
-/// (`$(( ))`) and command (`(( ))`, `let`, `for ((;;))`, `[[ ]]`) contexts
-/// (verified: `$(( 4+ ))` → `4+ : arithmetic syntax error: operand expected`).
-/// The caller adds the context-specific prefix (`((:` / `let:`) separately.
+/// GNU bash 5.3.0 reports PLAIN `syntax error` in the expansion (`$(( ))`)
+/// context — verified WSL 5.3.0(1): `echo $(( 4+ ))` →
+/// `bash: line 1: 4+ : syntax error: operand expected (error token is "+ ")`,
+/// `echo $(( 1.5 ))` → `syntax error: invalid arithmetic operator`.
+/// Only command contexts (`(( ))`, `let`, `for ((;;))`, `[[ ]]`) carry the
+/// `arithmetic` prefix — see [`arithmetic_command_error_message`].
 pub(in crate::executor) fn arithmetic_error_message(
     expression: &str,
     trailing_space: bool,
 ) -> Option<String> {
-    arithmetic_error_message_ctx(expression, trailing_space, true)
+    arithmetic_error_message_ctx(expression, trailing_space, false)
 }
 
 /// Command-context variant: `(( ))` / `let` / `[[ ]]` diagnostics carry an
