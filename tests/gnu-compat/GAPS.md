@@ -14,9 +14,9 @@ GNU 源码行号锚点基于 `third_party/bash/`（5.3.0 发行树）。
 | # | 套件 | 原因 | 处置 |
 |---|------|------|------|
 | A1 | glob-bracket | GNU 侧引用主仓库 `target/upstream-tests/examples/loadables/Makefile`，fixture 缺失 | 已随 harness 路径修复（1d07af34）消解 |
-| A2 | rsh | Windows/Git 环境语义：`cp /bin/sh` 在 rubash 侧失败（见 C-G27 winuxcmd cp 不转 POSIX 路径）；且 Git 的 /bin/sh 是 bash-as-sh，非 dash，消息不可能逐字节一致 | 文档化豁免 |
+| A2 | rsh | `cp /bin/sh` 曾因 harness 未配置 `WINUXSH_ROOT` 而原样透传（见 G27 纠正记录）；fixture 根已接入后转换正常。剩余差异是 Git 的 /bin/sh 是 bash-as-sh、WSL 是 dash，消息不可能逐字节一致 | 转换已通；消息差异文档化豁免 |
 | A3 | histexp | `/bin/sh: command not found`（平台）+ 缺 error prolog（归 G12） | 拆分 |
-| A4 | coproc | `/etc/passwd` 在 Git Bash 不存在（WSL 有）→ `cat /etc/passwd` 失败 | harness 可选夹具（`NIU83_FIX_ETC_PASSWD=1`，缺则写一行 `root:x:0:0:root:/root:/bin/bash`） |
+| A4 | coproc | `/etc/passwd` 在 Git Bash 不存在（WSL 有）→ `cat /etc/passwd` 失败 | 已由 harness fixture 根解决（`prepare_posix_root` 提供 `etc/passwd`） |
 | A5 | extglob | `touch a:b`：NTFS 拒绝 `:`，Windows 无法创建 | 文档化豁免 |
 | A6 | heredoc | `touch x*x`：NTFS 拒绝（os error 123） | 文档化豁免 |
 | A7 | builtins | `setlocale en_US.UTF-8` Windows 无此 locale；`/var/tmp` 解释器场景 WSL 专属 | 部分归 G21 |
@@ -185,11 +185,19 @@ arith 措辞、heredoc EOF 警告行号、trap 参数校验、invalid identifier
   `$(< filename)` glob 失败用例、`HOME: }: arithmetic syntax error`（归 G11）。
 - GNU 源码：`subst.c`。
 
-### G27 winuxcmd cp 不接受 POSIX 绝对路径（跨仓）
-- 现象：rubash 下 `cp /bin/sh /tmp/x` 报 `cannot stat '/bin/sh'`——PATH 排前的 winuxcmd cp
-  把 `/bin/sh` 解析为 `<当前盘>:\bin\sh`。
-- 处置：winuxcmd 侧修（参数为 POSIX 风格绝对路径时经 cygpath 语义转换或探测 MSYS 根）。
-- 影响：rsh（A2）、posixexp（A12）等套件的平台类差异大半由此而来。
+### G27 POSIX 路径透传（已纠正归因，issue #99 已关闭）
+- 原误判：winuxcmd cp 不接受 POSIX 绝对路径，需要 winuxcmd 侧修。
+- 实测纠正：POSIX→Windows 参数转换是 shell 层职责且 rubash **已实现**
+  （`src/executor/path.rs` `external_argument_path`：`/tmp`、`/dev/*`、`/mnt/X`
+  无条件转换；`/bin`、`/etc`、`/usr`、`/var` 在配置 shell 根
+  `WINUXSH_ROOT` 后经 `map_logical_path` 字面映射转换，niu.exe 实测正常）。
+- 真正原因：gnu-compat harness 直接跑 rubash.exe 未配置 `WINUXSH_ROOT`，
+  `/bin` 分支不激活，参数原样透传给 cp。
+- 修复：harness 层 `prepare_posix_root` 构造最小 fixture 根
+  （`bin/sh` 必须无 .exe 后缀字面名——`map_logical_path` 按字面名 exists()
+  检查，MSYS cp 会把副本改名 `sh.exe`；另有 `etc/passwd` 与 tmp/var/home
+  目录），`run_rubash` 导出 `WINUXSH_ROOT` 指向它。实测
+  `cp /bin/sh /tmp/x` rc=0、`cat /etc/passwd` 正常。coreutils 侧无需改动。
 
 ## 分类 D：有意扩展（建议 check 白名单豁免，非缺陷）
 
@@ -200,7 +208,7 @@ arith 措辞、heredoc EOF 警告行号、trap 参数校验、invalid identifier
 
 ## 处置路线
 
-1. 分类 A → 文档化豁免 + 两个可修项（A4 夹具、A2/A12 根因 G27 去 winuxcmd 修）。
-2. 分类 B → G11/G12/G13/G14 批量修（纯消息层，风险低）。
-3. 分类 D → run-83.sh 归一化白名单（harness 层，随本次提交）。
+1. 分类 A → 文档化豁免 + 可修项已修（A4/A12 经 `prepare_posix_root` fixture 根解决，A2 转换层已通、消息差异豁免）。
+2. 分类 B → G11/G12/G13/G14 批量修（纯消息层，风险低）。G11 上下文措辞已修（`3e348d53`）。
+3. 分类 D → run-83.sh 归一化白名单（harness 层，已随 c22dfdb9 提交）。
 4. 分类 C → 按本文档逐条开 issue，G18（挂起）与 G1/G2/G3（语义）优先。

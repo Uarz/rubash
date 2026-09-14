@@ -81,6 +81,28 @@ prepare_wsl_helpers() {
   done
 }
 
+prepare_posix_root() {
+  # rubash translates POSIX-absolute external arguments (/bin, /etc, /tmp,
+  # ...) against the configured shell root (WINUXSH_ROOT, see
+  # src/executor/path.rs external_argument_path). Upstream tests (rsh,
+  # coproc, posixexp, ...) reference /bin/sh and /etc/passwd, which exist on
+  # WSL but not for a bare rubash under Git Bash. Instead of patching
+  # winuxcmd per-command, give rubash the same mechanism the product uses:
+  # a minimal fixture root that makes those paths real, so rubash's own
+  # spawn-layer conversion handles them.
+  POSIX_ROOT="$ROOT_DIR/target/issue-suites/posix-root"
+  mkdir -p "$POSIX_ROOT/bin" "$POSIX_ROOT/etc" "$POSIX_ROOT/usr/bin" \
+           "$POSIX_ROOT/tmp" "$POSIX_ROOT/var/tmp" "$POSIX_ROOT/home"
+  # No .exe suffix: map_logical_path checks the literal spelling, and MSYS
+  # cp would rename the copy to sh.exe.
+  if [ ! -s "$POSIX_ROOT/bin/sh" ]; then
+    cat /bin/sh > "$POSIX_ROOT/bin/sh" 2>/dev/null || true
+  fi
+  if [ ! -s "$POSIX_ROOT/etc/passwd" ]; then
+    printf 'root:x:0:0:root:/root:/bin/bash\n' > "$POSIX_ROOT/etc/passwd"
+  fi
+}
+
 run_rubash() { # $1=name  $2=outfile
   # Use `export` (not `env`) to set environment variables. The `env` command
   # is a separate process that sets vars then exec's the target; when the
@@ -96,11 +118,12 @@ run_rubash() { # $1=name  $2=outfile
     # variables leaking into this session (CODEBUDDY_*, BASH_FUNC_* shims,
     # BASH_ENV, ...) make the A/B asymmetric and skew varenv et al. Keep a
     # minimal whitelist, unset everything else.
-    __allowed=" PATH HOME TMPDIR TEMP TMP SYSTEMROOT SYSTEMDRIVE WINDIR COMSPEC PATHEXT USERPROFILE APPDATA LOCALAPPDATA HOMEDRIVE HOMEPATH USERNAME COMPUTERNAME WSLENV THIS_SH " && \
+    __allowed=" PATH HOME TMPDIR TEMP TMP SYSTEMROOT SYSTEMDRIVE WINDIR COMSPEC PATHEXT USERPROFILE APPDATA LOCALAPPDATA HOMEDRIVE HOMEPATH USERNAME COMPUTERNAME WSLENV THIS_SH WINUXSH_ROOT " && \
     while IFS= read -r __v; do
       [ -n "$__v" ] || continue
       case "$__allowed" in *" $__v "*) ;; *) unset "$__v" ;; esac
     done < <(export -p | sed -n 's/^declare -x \([^= ]*\)=.*/\1/p') && \
+    export WINUXSH_ROOT="$POSIX_ROOT" && \
     timeout "$TIMEOUT_SECS" "$RUBASH" "./$1.tests") > "$2" 2>&1
 }
 
@@ -121,16 +144,7 @@ in_gnu_timeout_list() {
 
 # ---- setup ------------------------------------------------------------------
 prepare_clean_copy
-# Optional platform fixture: some upstream tests (coproc) cat /etc/passwd,
-# which Git Bash does not ship (WSL has its own). Opt in with
-# NIU83_FIX_ETC_PASSWD=1; writes a one-line root entry only when missing.
-if [ -n "${NIU83_FIX_ETC_PASSWD:-}" ] && [ ! -f /etc/passwd ]; then
-  if printf 'root:x:0:0:root:/root:/bin/bash\n' > /etc/passwd 2>/dev/null; then
-    echo "run-83.sh: created minimal /etc/passwd (NIU83_FIX_ETC_PASSWD=1)" >&2
-  else
-    echo "run-83.sh: cannot create /etc/passwd (need write access to the Git root)" >&2
-  fi
-fi
+prepare_posix_root
 if [ "$MODE" = gen ] || [ "$MODE" = live ]; then
   prepare_wsl_helpers
 fi
