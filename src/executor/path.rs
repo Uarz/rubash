@@ -976,34 +976,29 @@ pub(crate) fn shell_path_to_windows(path: &str, env_vars: &HashMap<String, Strin
         }
     }
 
-    if cfg!(windows) && shell_root.is_none() && normalized == "/tmp" {
-        if let Some(tmpdir) = env_vars.get("TMPDIR") {
-            if tmpdir.replace('\\', "/") == "/tmp" {
-                return std::env::temp_dir();
-            }
-            return shell_path_to_windows(tmpdir, env_vars);
-        }
+    // /tmp is a per-user temporary namespace, not part of the simulated
+    // install tree. Resolve it through TMPDIR (or the process temp dir)
+    // even when a shell root is configured: a root below a non-user-writable
+    // install dir (e.g. C:\Program Files\Niubash) would otherwise leave
+    // /tmp read-only (unixwin/niubash#94).
+    if cfg!(windows) && normalized == "/tmp" {
+        return windows_tmp_base(env_vars);
     }
 
-    if cfg!(windows) && shell_root.is_none() {
+    if cfg!(windows) {
         if let Some(rest) = normalized.strip_prefix("/tmp/") {
-            if let Some(tmpdir) = env_vars.get("TMPDIR") {
-                if tmpdir.replace('\\', "/") == "/tmp" {
-                    return std::env::temp_dir().join(rest);
-                }
-                return shell_path_to_windows(tmpdir, env_vars).join(rest);
-            }
+            return windows_tmp_base(env_vars).join(rest);
         }
     }
 
     // /var/tmp plays the same temporary-files role as /tmp in GNU tests
-    // (vredir.tests and friends default TMPDIR:=/var/tmp). With no configured
-    // shell root there is no real /var tree on Windows. Mirror the winuxsh
-    // simulated-tree layout instead of reusing the process temp directory:
-    // /var/tmp/<x> resolves under <safe-temp>/var/tmp/<x>, which keeps it
-    // distinct from /tmp (=<safe-temp> itself) and away from the generic
-    // file names other Windows processes create directly in %TEMP%.
-    if cfg!(windows) && shell_root.is_none() {
+    // (vredir.tests and friends default TMPDIR:=/var/tmp). It lives beside
+    // the per-user temp base rather than under the shell root for the same
+    // writability reason: /var/tmp/<x> resolves under
+    // <safe-temp>/var/tmp/<x>, which keeps it distinct from /tmp
+    // (=<safe-temp> itself) and away from the generic file names other
+    // Windows processes create directly in %TEMP%.
+    if cfg!(windows) {
         if let Some(var_tmp) = windows_var_tmp_dir() {
             if normalized == "/var/tmp" {
                 return var_tmp;
@@ -1099,10 +1094,25 @@ pub(crate) fn is_shell_null_device(path: &str) -> bool {
     normalized == "/dev/null" || (cfg!(windows) && normalized.eq_ignore_ascii_case("NUL"))
 }
 
-/// Windows has no real /var tree without a configured shell root. Derive the
-/// var-tmp base from the same source rubash uses for its TMPDIR default so
-/// /var/tmp stays deterministic, and keep it in a var/tmp subdirectory so it
-/// cannot collide with /tmp or with unrelated %TEMP% contents.
+/// Base directory backing the shell-visible `/tmp` on Windows. Prefers the
+/// executor's TMPDIR value; a TMPDIR that is empty or points back into the
+/// virtual `/tmp` tree falls back to the process temp dir so resolution can
+/// never recurse into itself. Only called under `cfg!(windows)`.
+fn windows_tmp_base(env_vars: &HashMap<String, String>) -> PathBuf {
+    if let Some(tmpdir) = env_vars.get("TMPDIR") {
+        let normalized = tmpdir.replace('\\', "/");
+        let normalized = normalized.trim_end_matches('/');
+        if !normalized.is_empty() && normalized != "/tmp" && !normalized.starts_with("/tmp/") {
+            return shell_path_to_windows(tmpdir, env_vars);
+        }
+    }
+    std::env::temp_dir()
+}
+
+/// Windows has no real /var tree. Derive the var-tmp base from the same
+/// source rubash uses for its TMPDIR default so /var/tmp stays
+/// deterministic, and keep it in a var/tmp subdirectory so it cannot
+/// collide with /tmp or with unrelated %TEMP% contents.
 pub(in crate::executor) fn windows_var_tmp_dir() -> Option<PathBuf> {
     if !cfg!(windows) {
         return None;
@@ -1112,17 +1122,11 @@ pub(in crate::executor) fn windows_var_tmp_dir() -> Option<PathBuf> {
 }
 
 /// Best-effort creation of the /var/tmp backing directory at shell startup.
-/// Open() callers never mkdir, so without this every /var/tmp open fails:
-/// under a configured shell root the winuxsh simulated tree ships var
-/// without a tmp child, and with no shell root the temp-directory fallback
-/// location does not exist on a fresh machine either.
-pub(in crate::executor) fn ensure_var_tmp_dir(env_vars: &HashMap<String, String>) {
-    let target = if let Some(root) = configured_shell_root(env_vars) {
-        Some(root.join("var").join("tmp"))
-    } else {
-        windows_var_tmp_dir()
-    };
-    if let Some(dir) = target {
+/// Open() callers never mkdir, so without this every /var/tmp open fails.
+/// The backing directory lives below the per-user temp base even when a
+/// shell root is configured, so this also works for read-only install roots.
+pub(in crate::executor) fn ensure_var_tmp_dir(_env_vars: &HashMap<String, String>) {
+    if let Some(dir) = windows_var_tmp_dir() {
         let _ = std::fs::create_dir_all(dir);
     }
 }
@@ -1488,9 +1492,11 @@ mod tests {
             shell_path_to_windows("/bin/../etc/config", &env_vars),
             root.join("etc").join("config")
         );
+        // /tmp resolves through TMPDIR even when a shell root is configured
+        // (unixwin/niubash#94), never below a possibly read-only root.
         assert_eq!(
             shell_path_to_windows("/tmp/cache", &env_vars),
-            root.join("tmp").join("cache")
+            PathBuf::from(r"C:\Windows\Temp").join("cache")
         );
         assert_eq!(
             shell_path_to_windows("/c/Users/example", &env_vars),
@@ -1514,6 +1520,72 @@ mod tests {
         assert_eq!(
             shell_path_to_windows("/dev/fd/1", &env_vars),
             PathBuf::from(r"\\.\WINUXSH_UNSUPPORTED_DEVICE")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_tmp_prefers_tmpdir_even_with_shell_root() {
+        // unixwin/niubash#94: a shell root under a non-user-writable install
+        // dir must not leave /tmp read-only; TMPDIR wins over <root>/tmp.
+        let root = std::env::temp_dir().join("rubash-tmp-shell-root");
+        let tmp = std::env::temp_dir().join("rubash-tmpdir-base");
+        let mut env_vars = HashMap::new();
+        env_vars.insert(
+            "WINUXSH_ROOT".to_string(),
+            root.to_string_lossy().to_string(),
+        );
+        env_vars.insert("TMPDIR".to_string(), tmp.to_string_lossy().to_string());
+
+        assert_eq!(shell_path_to_windows("/tmp", &env_vars), tmp);
+        assert_eq!(
+            shell_path_to_windows("/tmp/cache", &env_vars),
+            tmp.join("cache")
+        );
+
+        // A TMPDIR that spells the virtual /tmp itself must not recurse;
+        // it falls back to the real process temp dir.
+        env_vars.insert("TMPDIR".to_string(), "/tmp".to_string());
+        assert_eq!(
+            shell_path_to_windows("/tmp/x", &env_vars),
+            std::env::temp_dir().join("x")
+        );
+        env_vars.insert("TMPDIR".to_string(), "/tmp/".to_string());
+        assert_eq!(
+            shell_path_to_windows("/tmp/y", &env_vars),
+            std::env::temp_dir().join("y")
+        );
+
+        // With no TMPDIR at all /tmp lands in the process temp dir too.
+        env_vars.remove("TMPDIR");
+        assert_eq!(
+            shell_path_to_windows("/tmp", &env_vars),
+            std::env::temp_dir()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_var_tmp_stays_in_user_temp_even_with_shell_root() {
+        // unixwin/niubash#94: /var/tmp follows /tmp into the per-user temp
+        // namespace so a read-only install root cannot break it either.
+        let root = std::env::temp_dir().join("rubash-var-tmp-shell-root");
+        let mut env_vars = HashMap::new();
+        env_vars.insert(
+            "WINUXSH_ROOT".to_string(),
+            root.to_string_lossy().to_string(),
+        );
+
+        let var_tmp = windows_var_tmp_dir().unwrap();
+        assert_eq!(shell_path_to_windows("/var/tmp", &env_vars), var_tmp);
+        assert_eq!(
+            shell_path_to_windows("/var/tmp/f", &env_vars),
+            var_tmp.join("f")
+        );
+        // Other /var children still live below the shell root.
+        assert_eq!(
+            shell_path_to_windows("/var/log/x", &env_vars),
+            root.join("var").join("log").join("x")
         );
     }
 
