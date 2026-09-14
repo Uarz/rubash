@@ -155,6 +155,13 @@ pub(in crate::executor) fn decode_old_style_backtick_source(source: &str) -> Str
             Some(next @ ('$' | '`' | '\\')) => {
                 push_backtick_source_char(&mut output, next, single);
             }
+            // GNU parse.y parse_matched_pair consumes the backslash before
+            // any escaped character inside backticks, so `\"` becomes `"`
+            // (not `\"`). This lets `echo \"Hello\"` inside backticks parse
+            // as `echo "Hello"` with real double-quote delimiters.
+            Some('"') => {
+                push_backtick_source_char(&mut output, '"', single);
+            }
             Some('\n') => {}
             Some('\r') if chars.peek().copied() == Some('\n') => {
                 chars.next();
