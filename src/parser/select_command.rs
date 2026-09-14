@@ -4,7 +4,15 @@ use crate::lexer::{Token, TokenKind};
 pub(super) fn parse_select_command(tokens: &[Token], start: usize) -> Option<(CommandNode, usize)> {
     // Parse `select name [in words ...]; do body; done`
     let variable_token = tokens.get(start + 1)?;
-    let variable = variable_token.value.clone();
+    // GNU keeps the loop variable name as the raw word text — quote removal
+    // does not apply to the name position (`select f\1 in ...` reports
+    // `f\1': not a valid identifier`, errors.tests line 51). Valid
+    // identifiers never contain escapes, so raw == value for accepted names.
+    let variable = if variable_token.raw.is_empty() {
+        variable_token.value.clone()
+    } else {
+        variable_token.raw.clone()
+    };
     if !matches!(
         tokens.get(start + 1)?.kind,
         TokenKind::Word | TokenKind::Variable | TokenKind::Keyword

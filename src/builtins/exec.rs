@@ -12,6 +12,19 @@ const EX_BADUSAGE: i32 = 2;
 const EX_NOTFOUND: i32 = 127;
 const EXPORTED_VARS: &str = "__RUBASH_EXPORTED_VARS";
 
+/// GNU exec.def diagnostics go through builtin_error -> error_prolog, which
+/// prefixes `./script: line N:` when running a script file (mirrors
+/// builtins/trap.rs).
+fn diagnostic_prefix(env_vars: &HashMap<String, String>) -> String {
+    if let (Some(script), Some(line)) = (
+        env_vars.get("__RUBASH_SCRIPT_NAME"),
+        env_vars.get("__RUBASH_CURRENT_LINE"),
+    ) {
+        return format!("{script}: line {line}: ");
+    }
+    "rubash: ".to_string()
+}
+
 pub fn execute(args: &[String], env_vars: &HashMap<String, String>) -> io::Result<i32> {
     // Route through the capture-aware stdout: the exec builtin's direct
     // process-stdout writes (env dumps, printenv fallback) must land in the
@@ -84,7 +97,15 @@ where
     let mut clean_env = false;
     let mut login = false;
     let mut argv0 = None;
-    let Some(index) = parse_options(args, stderr, &mut clean_env, &mut login, &mut argv0)? else {
+    let Some(index) = parse_options(
+        args,
+        stderr,
+        &diagnostic_prefix(env_vars),
+        &mut clean_env,
+        &mut login,
+        &mut argv0,
+    )?
+    else {
         return Ok(EX_BADUSAGE);
     };
 
@@ -108,7 +129,11 @@ where
 
     if let Some(command) = command {
         let Some(program) = crate::executor::path::find_user_command(command, env_vars) else {
-            writeln!(stderr, "rubash: exec: {command}: not found")?;
+            writeln!(
+                stderr,
+                "{}exec: {command}: not found",
+                diagnostic_prefix(env_vars)
+            )?;
             return Ok(EX_NOTFOUND);
         };
         return match child_stdio {
@@ -135,6 +160,7 @@ fn command_operand_index(args: &[String]) -> Option<usize> {
     parse_options(
         args,
         &mut io::sink(),
+        "rubash: ",
         &mut clean_env,
         &mut login,
         &mut argv0,
@@ -147,6 +173,7 @@ fn command_operand_index(args: &[String]) -> Option<usize> {
 fn parse_options<W>(
     args: &[String],
     stderr: &mut W,
+    prefix: &str,
     clean_env: &mut bool,
     login: &mut bool,
     argv0: &mut Option<String>,
@@ -179,7 +206,7 @@ where
                     }
                     index += 1;
                     let Some(name) = args.get(index) else {
-                        writeln!(stderr, "rubash: exec: -a: option requires an argument")?;
+                        writeln!(stderr, "{prefix}exec: -a: option requires an argument")?;
                         write_usage(stderr)?;
                         return Ok(None);
                     };
@@ -187,7 +214,7 @@ where
                     break;
                 }
                 _ => {
-                    writeln!(stderr, "rubash: exec: -{option}: invalid option")?;
+                    writeln!(stderr, "{prefix}exec: -{option}: invalid option")?;
                     write_usage(stderr)?;
                     return Ok(None);
                 }
@@ -221,7 +248,13 @@ where
             Ok(output.status.code().unwrap_or(1))
         }
         Err(error) => {
-            writeln!(stderr, "rubash: exec: {}: {}", program.display(), error)?;
+            writeln!(
+                stderr,
+                "{}exec: {}: {}",
+                diagnostic_prefix(env_vars),
+                program.display(),
+                error
+            )?;
             Ok(126)
         }
     }
@@ -245,7 +278,13 @@ where
     match process.status() {
         Ok(status) => Ok(status.code().unwrap_or(1)),
         Err(error) => {
-            writeln!(stderr, "rubash: exec: {}: {}", program.display(), error)?;
+            writeln!(
+                stderr,
+                "{}exec: {}: {}",
+                diagnostic_prefix(env_vars),
+                program.display(),
+                error
+            )?;
             Ok(126)
         }
     }

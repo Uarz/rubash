@@ -30,7 +30,7 @@ where
     W: Write,
 {
     let args: Vec<&str> = args.into_iter().collect();
-    let (options, first_name) = match parse_unset_options(&args, stderr)? {
+    let (options, first_name) = match parse_unset_options(&args, env_vars, stderr)? {
         Ok(parsed) => parsed,
         Err(status) => return Ok(status),
     };
@@ -38,7 +38,8 @@ where
     if options.functions && options.variables {
         writeln!(
             stderr,
-            "rubash: unset: cannot simultaneously unset a function and a variable"
+            "{}unset: cannot simultaneously unset a function and a variable",
+            diagnostic_prefix(env_vars)
         )?;
         return Ok(EXECUTION_FAILURE);
     }
@@ -55,6 +56,7 @@ where
 
 fn parse_unset_options<W>(
     args: &[&str],
+    env_vars: &HashMap<String, String>,
     stderr: &mut W,
 ) -> io::Result<Result<(UnsetOptions, usize), i32>>
 where
@@ -78,7 +80,12 @@ where
                 'v' => options.variables = true,
                 'n' => options.nameref = true,
                 other => {
-                    writeln!(stderr, "rubash: unset: -{}: invalid option", other)?;
+                    writeln!(
+                    stderr,
+                    "{}unset: -{}: invalid option",
+                    diagnostic_prefix(env_vars),
+                    other
+                )?;
                     writeln!(stderr, "unset: usage: unset [-f] [-v] [-n] [name ...]")?;
                     return Ok(Err(EX_USAGE));
                 }

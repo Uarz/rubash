@@ -111,7 +111,12 @@ where
     if !end_options
         && matches!(args.get(index), Some(option) if option.starts_with('-') && !option.starts_with("-v"))
     {
-        writeln!(stderr, "rubash: printf: {}: invalid option", args[index])?;
+        writeln!(
+            stderr,
+            "{}printf: {}: invalid option",
+            diagnostic_prefix(env_vars),
+            args[index]
+        )?;
         writeln!(stderr, "printf: usage: printf [-v var] format [arguments]")?;
         return Ok(EX_USAGE);
     }
@@ -120,7 +125,11 @@ where
         let name = match args.get(index) {
             Some(&"-v") => {
                 let Some(name) = args.get(index + 1) else {
-                    writeln!(stderr, "rubash: printf: -v: option requires an argument")?;
+                    writeln!(
+                        stderr,
+                        "{}printf: -v: option requires an argument",
+                        diagnostic_prefix(env_vars)
+                    )?;
                     return Ok(EX_USAGE);
                 };
                 index += 2;
@@ -138,7 +147,12 @@ where
 
         if let Some(name) = name {
             if !valid_identifier(name) && !valid_printf_array_target(name, env_vars) {
-                writeln!(stderr, "rubash: printf: `{}`: not a valid identifier", name)?;
+                writeln!(
+                    stderr,
+                    "{}printf: `{}': not a valid identifier",
+                    diagnostic_prefix(env_vars),
+                    name
+                )?;
                 return Ok(EX_USAGE);
             }
 
@@ -151,7 +165,12 @@ where
     }
 
     if !end_options && matches!(args.get(index), Some(option) if option.starts_with('-')) {
-        writeln!(stderr, "rubash: printf: {}: invalid option", args[index])?;
+        writeln!(
+            stderr,
+            "{}printf: {}: invalid option",
+            diagnostic_prefix(env_vars),
+            args[index]
+        )?;
         writeln!(stderr, "printf: usage: printf [-v var] format [arguments]")?;
         return Ok(EX_USAGE);
     }
@@ -173,6 +192,19 @@ where
     }
 
     Ok(rendered.status)
+}
+
+/// GNU printf.c diagnostics go through builtin_error -> error_prolog, which
+/// prefixes `./script: line N:` when running a script file and falls back to
+/// the shell name without script context (mirrors builtins/trap.rs).
+fn diagnostic_prefix(env_vars: &HashMap<String, String>) -> String {
+    if let (Some(script), Some(line)) = (
+        env_vars.get("__RUBASH_SCRIPT_NAME"),
+        env_vars.get("__RUBASH_CURRENT_LINE"),
+    ) {
+        return format!("{script}: line {line}: ");
+    }
+    "rubash: ".to_string()
 }
 
 fn valid_printf_array_target(name: &str, env_vars: &HashMap<String, String>) -> bool {
@@ -557,7 +589,8 @@ fn render_one_pass(
                             output,
                             status: EXECUTION_FAILURE,
                             errors: vec![format!(
-                                "rubash: printf: `{format}': missing format character"
+                                "{}printf: `{format}': missing format character",
+                                diagnostic_prefix(env_vars)
                             )],
                             stop_output: true,
                         };
@@ -566,7 +599,8 @@ fn render_one_pass(
 
                 if spec.time_format.is_some() && spec.specifier != 'T' {
                     errors.push(format!(
-                        "rubash: printf: warning: `{}': invalid time format specification",
+                        "{}printf: warning: `{}': invalid time format specification",
+                        diagnostic_prefix(env_vars),
                         spec.specifier
                     ));
                     output.push_str(&spec.raw);
@@ -578,7 +612,8 @@ fn render_one_pass(
                         output,
                         status: EXECUTION_FAILURE,
                         errors: vec![format!(
-                            "rubash: printf: `{}': invalid format character",
+                            "{}printf: `{}': invalid format character",
+                            diagnostic_prefix(env_vars),
                             spec.specifier
                         )],
                         stop_output: true,
@@ -633,7 +668,7 @@ fn render_one_pass(
 fn status_from_errors(errors: &[String]) -> i32 {
     if errors
         .iter()
-        .all(|error| error.starts_with("rubash: printf: warning:"))
+        .all(|error| error.contains(": printf: warning:"))
     {
         EXECUTION_SUCCESS
     } else if errors.is_empty() {
