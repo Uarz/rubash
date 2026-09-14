@@ -97,7 +97,13 @@ impl Executor {
         }
 
         if let Some((var_name, error_word)) = name.split_once('?') {
-            if is_parameter_error_name(var_name) {
+            // GNU subst.c parameter_brace_expand: `${#?}` is the length of
+            // `$?`, not `$#` with the `?` error operator. Only the bare `#?`
+            // form (no error word) is the length-of-special case; `${#?word}`
+            // stays the `?` operator.
+            if is_parameter_error_name(var_name)
+                && !(var_name == "#" && error_word.is_empty())
+            {
                 return self
                     .parameter_operator_value(var_name)
                     .map(|value| shell_safe_value(&value))
@@ -125,10 +131,17 @@ impl Executor {
         }
 
         if let Some((var_name, offset, length)) = self.parse_parameter_substring(name) {
+            // `${#:offset}` / `${#?:0}` slice the special parameter value,
+            // not a length expansion. expand_braced_substring_parameter does
+            // not resolve special-parameter names, so fetch the value here.
+            if is_special_parameter_name(var_name) || var_name.parse::<usize>().is_ok() {
+                let value = self.expand_parameter_named_value(var_name);
+                return parameter_substring(&value, offset, length);
+            }
             return self.expand_braced_substring_parameter(var_name, offset, length);
         }
 
-        if name.starts_with('#') {
+        if name.starts_with('#') && !hash_is_special_param_with_operator(name) {
             if let Some(value) = self.expand_braced_indexed_parameter(name) {
                 return value;
             }
@@ -338,7 +351,13 @@ impl Executor {
         }
 
         if let Some((var_name, error_word)) = name.split_once('?') {
-            if is_parameter_error_name(var_name) {
+            // GNU subst.c parameter_brace_expand: `${#?}` is the length of
+            // `$?`, not `$#` with the `?` error operator. Only the bare `#?`
+            // form (no error word) is the length-of-special case; `${#?word}`
+            // stays the `?` operator.
+            if is_parameter_error_name(var_name)
+                && !(var_name == "#" && error_word.is_empty())
+            {
                 return self
                     .parameter_operator_value(var_name)
                     .map(|value| shell_safe_value(&value))
@@ -375,10 +394,17 @@ impl Executor {
         }
 
         if let Some((var_name, offset, length)) = self.parse_parameter_substring_mut(name) {
+            // `${#:offset}` / `${#?:0}` slice the special parameter value,
+            // not a length expansion. expand_braced_substring_parameter does
+            // not resolve special-parameter names, so fetch the value here.
+            if is_special_parameter_name(var_name) || var_name.parse::<usize>().is_ok() {
+                let value = self.expand_parameter_named_value(var_name);
+                return parameter_substring(&value, offset, length);
+            }
             return self.expand_braced_substring_parameter(var_name, offset, length);
         }
 
-        if name.starts_with('#') {
+        if name.starts_with('#') && !hash_is_special_param_with_operator(name) {
             if let Some(value) = self.expand_braced_indexed_parameter(name) {
                 return value;
             }
@@ -602,6 +628,22 @@ impl Executor {
         self.apply_shell_assignment(&target_name, value);
         true
     }
+}
+
+/// GNU subst.c parameter_brace_expand: `${#` followed by one of the operator
+/// characters `-`, `+`, `=`, `?` and a word makes `#` the special parameter
+/// (positional parameter count) with that operator, not a length prefix.
+/// `${#-}` / `${#?}` (operator char alone before `}`) remain length of the
+/// special parameter. Returns true when the `#` length-prefix route should be
+/// skipped so the operator splits downstream handle the form.
+fn hash_is_special_param_with_operator(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix('#') else {
+        return false;
+    };
+    let Some(op) = rest.chars().next() else {
+        return false;
+    };
+    matches!(op, '-' | '+' | '=' | '?') && rest.len() > op.len_utf8()
 }
 
 /// Walk the text before a `${...}` body and report (a) whether the body
