@@ -561,7 +561,7 @@ fn parse_int(value: &str) -> Result<i64, String> {
 /// leading whitespace skipped by strtoimax, trailing whitespace skipped
 /// manually, and the entire input must be consumed.  Rejects overflow,
 /// underflow, and strings with no digits.
-fn valid_number(s: &str) -> Option<i64> {
+pub(crate) fn valid_number(s: &str) -> Option<i64> {
     let trimmed = s.trim();
     if trimmed.is_empty() {
         return None;
