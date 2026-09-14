@@ -1,5 +1,8 @@
 use super::{ArithLValue, ConditionalArithParser};
-use crate::executor::arithmetic::{bash_arith, checked_arithmetic_pow};
+use crate::executor::arithmetic::{
+    bash_arith, checked_arithmetic_pow, eval_mutable_arith_value_with_random,
+    strip_arith_double_quotes,
+};
 use crate::executor::{
     array_value_at, assoc_entries, assoc_value_at, current_epoch_seconds,
     env_derived_dynamic_parameter_value, format_assoc_storage, format_indexed_array_storage,
@@ -19,6 +22,11 @@ impl ConditionalArithParser<'_> {
                 });
                 let value = value.unwrap_or_default();
                 self.evaluate_variable_text(&format!("{name}[{index}]"), &value)
+            }
+            ArithLValue::IndexedRaw { .. } => {
+                // Should have been resolved by resolve_raw_subscript before
+                // reaching here; treat as a value fetch failure.
+                None
             }
             ArithLValue::Assoc { name, key } => {
                 let value = self
@@ -144,14 +152,18 @@ impl ConditionalArithParser<'_> {
         op: &str,
         rhs: i128,
     ) -> Option<i128> {
-        if !self.lvalue_is_writable(lvalue) {
+        // Resolve a deferred (raw) subscript now — after the RHS has been
+        // evaluated, so side effects in the RHS are visible to the subscript
+        // (GNU expr.c:1395-1401 + expr_bind_variable re-evaluation).
+        let lvalue = self.resolve_raw_subscript(lvalue)?;
+        if !self.lvalue_is_writable(&lvalue) {
             return None;
         }
         if op == "=" {
-            self.set_lvalue(lvalue, rhs);
+            self.set_lvalue(&lvalue, rhs);
             return Some(rhs);
         }
-        let current = self.lvalue_value(lvalue)?;
+        let current = self.lvalue_value(&lvalue)?;
         let value = match op {
             "+=" => bash_arith(current + rhs),
             "-=" => bash_arith(current - rhs),
@@ -174,14 +186,38 @@ impl ConditionalArithParser<'_> {
             "/=" | "%=" => return None,
             _ => return None,
         };
-        self.set_lvalue(lvalue, value);
+        self.set_lvalue(&lvalue, value);
         Some(value)
+    }
+
+    /// Evaluate a deferred raw subscript into a concrete `Indexed` lvalue.
+    /// Non-raw lvalues pass through unchanged.
+    fn resolve_raw_subscript(&mut self, lvalue: &ArithLValue) -> Option<ArithLValue> {
+        match lvalue {
+            ArithLValue::IndexedRaw { name, subscript } => {
+                let stripped = strip_arith_double_quotes(subscript);
+                if stripped.trim().is_empty() {
+                    return Some(ArithLValue::Indexed {
+                        name: name.clone(),
+                        index: 0,
+                    });
+                }
+                let (value, _cat) =
+                    eval_mutable_arith_value_with_random(&stripped, self.env_vars, self.random_state);
+                Some(ArithLValue::Indexed {
+                    name: name.clone(),
+                    index: value?,
+                })
+            }
+            other => Some(other.clone()),
+        }
     }
 
     fn lvalue_is_writable(&mut self, lvalue: &ArithLValue) -> bool {
         let name = match lvalue {
             ArithLValue::Scalar(name)
             | ArithLValue::Indexed { name, .. }
+            | ArithLValue::IndexedRaw { name, .. }
             | ArithLValue::Assoc { name, .. } => name,
         };
         if is_marked_var(self.env_vars, READONLY_VARS, name) {
@@ -196,6 +232,9 @@ impl ConditionalArithParser<'_> {
         match lvalue {
             ArithLValue::Scalar(name) => self.set_variable(name, value),
             ArithLValue::Indexed { name, index } => self.set_array_element(name, *index, value),
+            ArithLValue::IndexedRaw { .. } => {
+                // Should have been resolved by resolve_raw_subscript; no-op.
+            }
             ArithLValue::Assoc { name, key } => self.set_assoc_element(name, key, value),
         }
     }

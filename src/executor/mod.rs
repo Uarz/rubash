@@ -43,6 +43,7 @@ mod command_words;
 mod compound_exec;
 mod history_exec;
 pub(crate) mod substitution_metadata;
+use command_words::raw_word_has_unquoted_parameter_expansion;
 use compound_exec::*;
 mod declare_local;
 mod dynamic_arrays;
@@ -470,6 +471,14 @@ pub struct Executor {
     /// after word expansion so the enclosing context unwinds.
     current_shell_substitution_exit: Cell<Option<i32>>,
     last_command_substitution_parse_error: Cell<bool>,
+    /// GNU execute_cmd.c:4887-4888 sets `special_builtin_failed = 1` when a
+    /// POSIX special builtin returns an error status (> EX_SHERRBASE = 256).
+    /// After the command (execute_cmd.c:1004-1017), if `posixly_correct &&
+    /// interactive == 0 && special_builtin_failed`, the shell exits with the
+    /// converted status. Rubash sets this flag in each special builtin that
+    /// returns EX_USAGE/EX_UTILERROR/etc., and checks it in
+    /// `execute_materialized_command` to exit the noninteractive POSIX shell.
+    special_builtin_failed: Cell<bool>,
     stdout_capture: Option<Vec<u8>>,
     stderr_capture: Option<Vec<u8>>,
     host_external_command_handler: Option<HostExternalCommandHandler>,

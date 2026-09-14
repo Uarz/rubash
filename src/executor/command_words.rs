@@ -250,7 +250,7 @@ fn word_is_unquoted_indirect_name_list(word: &str) -> bool {
             .is_some_and(|prefix| !prefix.is_empty())
 }
 
-fn raw_word_has_unquoted_parameter_expansion(raw: &str) -> bool {
+pub(in crate::executor) fn raw_word_has_unquoted_parameter_expansion(raw: &str) -> bool {
     let chars = raw.chars().collect::<Vec<_>>();
     let mut index = 0usize;
     while index < chars.len() {

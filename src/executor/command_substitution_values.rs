@@ -311,6 +311,47 @@ impl Executor {
                     }
                 }
             }
+            // GNU subst.c param_expand: when the parameter itself is $@ or
+            // $* and it is set, the `-`/`:-` operator just uses the
+            // parameter's value (TEMP), which carries W_DOLLARAT for $@. In
+            // double quotes that means one field per positional parameter
+            // (like `"$@"`), and $* joins with IFS[0] (like `"$*"`). The
+            // String-based operator path collapses these to a single joined
+            // field, so intercept here and return the per-parameter fields.
+            // This covers the `for` loop's word-list expansion path, which
+            // does not go through expand_command_word.
+            if quoted_positional_word {
+                let (var_name, _alternate, use_when_set, require_non_empty) =
+                    if let Some((var_name, alternate)) = name.split_once(":+") {
+                        (var_name, alternate, true, true)
+                    } else if let Some((var_name, alternate)) = name.split_once('+') {
+                        (var_name, alternate, true, false)
+                    } else if let Some((var_name, alternate)) = name.split_once(":-") {
+                        (var_name, alternate, false, true)
+                    } else if let Some((var_name, alternate)) = name.split_once('-') {
+                        (var_name, alternate, false, false)
+                    } else {
+                        ("", "", false, false)
+                    };
+                if var_name == "@" || var_name == "*" {
+                    let value = self.parameter_operator_value(var_name);
+                    let word_used = if use_when_set {
+                        value.is_some()
+                            && (!require_non_empty || !value.unwrap_or_default().is_empty())
+                    } else {
+                        value.is_none()
+                            || (require_non_empty && value.unwrap_or_default().is_empty())
+                    };
+                    if !word_used {
+                        if var_name == "@" {
+                            return Some(self.positional_params.clone());
+                        }
+                        return Some(vec![self
+                            .positional_params
+                            .join(&self.ifs_first_char_separator())]);
+                    }
+                }
+            }
             if let Some(values) =
                 self.positional_transform_word_values(name, quoted_positional_word)
             {
@@ -893,6 +934,10 @@ enum QuotedPositionalAtSegment {
 
 fn quoted_positional_at_segments(raw: &str) -> Option<Vec<QuotedPositionalAtSegment>> {
     let chars = raw.chars().collect::<Vec<_>>();
+    // Map char indices to byte offsets so `${...}` bodies can be skipped with
+    // the canonical `matching_parameter_brace` scanner (parameter_ops.rs),
+    // which honors quotes, nested expansions, and bracket patterns.
+    let char_to_byte: Vec<usize> = raw.char_indices().map(|(offset, _)| offset).collect();
     let mut segments = Vec::new();
     let mut literal_start = 0usize;
     let mut index = 0usize;
@@ -943,6 +988,24 @@ fn quoted_positional_at_segments(raw: &str) -> Option<Vec<QuotedPositionalAtSegm
             }
             '$' if chars.get(index + 1) == Some(&'\'') => {
                 index = skip_single_quote(&chars, index + 2)?;
+                continue;
+            }
+            '$' if chars.get(index + 1) == Some(&'{') => {
+                // Skip `${...}` bodies: a `"$@"` inside a parameter expansion
+                // default/alternate word (e.g. `${undef-"$@"}`) is part of the
+                // expansion, not a top-level quoted positional-at segment.
+                // GNU parse.y extracts the braced body as one unit; the `}`
+                // closes the expansion and any text after it is separate.
+                let body_start = index + 2;
+                if let Some(&body_start_byte) = char_to_byte.get(body_start) {
+                    if let Some(end_byte) = matching_parameter_brace(&raw[body_start_byte..]) {
+                        let close_byte = body_start_byte + end_byte;
+                        index = raw[..=close_byte].chars().count();
+                        continue;
+                    }
+                }
+                // Unterminated `${...}`: skip to end.
+                index = chars.len();
                 continue;
             }
             '\\' => {

@@ -97,7 +97,13 @@ impl Executor {
         }
 
         if let Some((var_name, error_word)) = name.split_once('?') {
-            if is_parameter_error_name(var_name) {
+            // GNU subst.c parameter_brace_expand: `${#?}` is the length of
+            // `$?`, not `$#` with the `?` error operator. Only the bare `#?`
+            // form (no error word) is the length-of-special case; `${#?word}`
+            // stays the `?` operator.
+            if is_parameter_error_name(var_name)
+                && !(var_name == "#" && error_word.is_empty())
+            {
                 return self
                     .parameter_operator_value(var_name)
                     .map(|value| shell_safe_value(&value))
@@ -125,10 +131,17 @@ impl Executor {
         }
 
         if let Some((var_name, offset, length)) = self.parse_parameter_substring(name) {
+            // `${#:offset}` / `${#?:0}` slice the special parameter value,
+            // not a length expansion. expand_braced_substring_parameter does
+            // not resolve special-parameter names, so fetch the value here.
+            if is_special_parameter_name(var_name) || var_name.parse::<usize>().is_ok() {
+                let value = self.expand_parameter_named_value(var_name);
+                return parameter_substring(&value, offset, length);
+            }
             return self.expand_braced_substring_parameter(var_name, offset, length);
         }
 
-        if name.starts_with('#') {
+        if name.starts_with('#') && !hash_is_special_param_with_operator(name) {
             if let Some(value) = self.expand_braced_indexed_parameter(name) {
                 return value;
             }
@@ -338,7 +351,13 @@ impl Executor {
         }
 
         if let Some((var_name, error_word)) = name.split_once('?') {
-            if is_parameter_error_name(var_name) {
+            // GNU subst.c parameter_brace_expand: `${#?}` is the length of
+            // `$?`, not `$#` with the `?` error operator. Only the bare `#?`
+            // form (no error word) is the length-of-special case; `${#?word}`
+            // stays the `?` operator.
+            if is_parameter_error_name(var_name)
+                && !(var_name == "#" && error_word.is_empty())
+            {
                 return self
                     .parameter_operator_value(var_name)
                     .map(|value| shell_safe_value(&value))
@@ -375,10 +394,17 @@ impl Executor {
         }
 
         if let Some((var_name, offset, length)) = self.parse_parameter_substring_mut(name) {
+            // `${#:offset}` / `${#?:0}` slice the special parameter value,
+            // not a length expansion. expand_braced_substring_parameter does
+            // not resolve special-parameter names, so fetch the value here.
+            if is_special_parameter_name(var_name) || var_name.parse::<usize>().is_ok() {
+                let value = self.expand_parameter_named_value(var_name);
+                return parameter_substring(&value, offset, length);
+            }
             return self.expand_braced_substring_parameter(var_name, offset, length);
         }
 
-        if name.starts_with('#') {
+        if name.starts_with('#') && !hash_is_special_param_with_operator(name) {
             if let Some(value) = self.expand_braced_indexed_parameter(name) {
                 return value;
             }
@@ -457,7 +483,13 @@ impl Executor {
     /// alternate is fully quote-removed (`a\ b` -> `a b`, posixexp2 case 35).
     /// Inside double quotes `\` only escapes $, `, ", \, and newline; any
     /// other `\X` is literal data and survives into the assigned value
-    /// (`"${v=a\ b}"` assigns `a\ b`, posixexp2 case 36).
+    /// (`"${v=a\ b}"` assigns `a\ b`, posixexp2 case 36). Inside double
+    /// quotes single quotes are data, not delimiters, so `$var` inside
+    /// `'...'` is expanded (`"${fox='$foo'}"` assigns `'bar'`,
+    /// more-exp.tests:112). Double quotes in the alternate are removed
+    /// by `decode_double_quotes_in_quoted_parameter_word` (matching the
+    /// `+`/`-` operator path), so `"${und="foo"}"` assigns `foo`
+    /// (new-exp.tests:33).
     fn expand_assignment_alternate_mut(&mut self, value: &str, double_quoted: bool) -> String {
         if !double_quoted {
             return self.expand_parameter_word_mut(value);
@@ -483,8 +515,19 @@ impl Executor {
             protected.push(chars[index]);
             index += 1;
         }
-        self.expand_parameter_word_mut(&protected)
-            .replace(PROTECTED_LITERAL_BACKSLASH, "\\")
+        // Remove double quotes from the alternate (matching the `+`/`-`
+        // operator path which calls decode_double_quotes_in_quoted_parameter_word).
+        let decoded = decode_double_quotes_in_quoted_parameter_word(&protected);
+        // Use DoubleQuoted context so single quotes are treated as data
+        // (not quote delimiters), matching GNU's expand_string_for_rhs
+        // behavior inside double quotes. Use unescape_parameter_operator_result
+        // (not decode_parameter_word_quotes) so single quotes survive as data.
+        let expanded = self.expand_embedded_parameters_mut_with_context(
+            &decoded,
+            SubstitutionQuoteContext::DoubleQuoted,
+        );
+        let unescaped = unescape_parameter_operator_result(&expanded, SubstitutionQuoteContext::DoubleQuoted);
+        unescaped.replace(PROTECTED_LITERAL_BACKSLASH, "\\")
     }
 
     pub(in crate::executor) fn apply_parameter_assignment_expansions_in_word(
@@ -585,6 +628,22 @@ impl Executor {
         self.apply_shell_assignment(&target_name, value);
         true
     }
+}
+
+/// GNU subst.c parameter_brace_expand: `${#` followed by one of the operator
+/// characters `-`, `+`, `=`, `?` and a word makes `#` the special parameter
+/// (positional parameter count) with that operator, not a length prefix.
+/// `${#-}` / `${#?}` (operator char alone before `}`) remain length of the
+/// special parameter. Returns true when the `#` length-prefix route should be
+/// skipped so the operator splits downstream handle the form.
+fn hash_is_special_param_with_operator(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix('#') else {
+        return false;
+    };
+    let Some(op) = rest.chars().next() else {
+        return false;
+    };
+    matches!(op, '-' | '+' | '=' | '?') && rest.len() > op.len_utf8()
 }
 
 /// Walk the text before a `${...}` body and report (a) whether the body
@@ -705,11 +764,38 @@ fn decode_double_quotes_in_quoted_parameter_word(word: &str) -> String {
                     break;
                 }
                 '\\' if matches!(chars.get(index + 1), Some('\\' | '"' | '$' | '`' | '\n')) => {
-                    index += 1;
-                    if index < chars.len() && chars[index] != '\n' {
-                        output.push(chars[index]);
+                    let escaped = chars[index + 1];
+                    index += 2;
+                    match escaped {
+                        '\n' => {}
+                        // Keep `\\` intact so the expansion walker can
+                        // consume it as a literal backslash and let the
+                        // following character (e.g. `$var`) expand normally
+                        // (rhs-exp.tests: `"\\$selvecs"` → `\&m68kcoff_vec`).
+                        '\\' => {
+                            output.push('\\');
+                            output.push('\\');
+                        }
+                        // Protect `$` and `` ` `` from re-expansion: inside
+                        // double quotes `\$` and `\`` are literal data that
+                        // must not trigger parameter/command substitution.
+                        '$' => output.push('\x1f'),
+                        '`' => output.push('\x1a'),
+                        _ => output.push(escaped),
                     }
-                    index += 1;
+                }
+                // GNU expand_word_internal with Q_DOUBLE_QUOTES: backslash
+                // before a char NOT in CBSDQUOTE ($ ` " \ newline) is removed
+                // — only the char survives (rhs-exp.tests: `\p` → `p`,
+                // `\'` → `'`).
+                '\\' => {
+                    if let Some(&next) = chars.get(index + 1) {
+                        index += 2;
+                        output.push(next);
+                    } else {
+                        output.push('\\');
+                        index += 1;
+                    }
                 }
                 ch => {
                     output.push(ch);

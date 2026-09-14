@@ -18,7 +18,7 @@ use std::io::{self, Write};
 
 pub(super) const EXECUTION_SUCCESS: i32 = 0;
 pub(super) const EXECUTION_FAILURE: i32 = 1;
-pub(super) const EX_USAGE: i32 = 2;
+pub(crate) const EX_USAGE: i32 = 2;
 
 const SET_FLAGS: &str = "abefhkmnprtuvxBCEHPT";
 pub(super) const EXPORTED_VARS: &str = "__RUBASH_EXPORTED_VARS";
@@ -371,10 +371,12 @@ mod tests {
         // GNU builtins/set.def:899-920: `unset -v 1BAD` reports sh_invalidid
         // ("`1BAD': not a valid identifier") and fails; without -v the invalid
         // name is treated as a potential function name and unset silently.
+        // The raw status is EX_UTILERROR (263 > EX_SHERRBASE); the executor
+        // converts it to EXECUTION_FAILURE (1) via builtin_status.
         let mut env_vars = HashMap::new();
         let (status, stderr) = run(&["-v", "1BAD"], &mut env_vars);
 
-        assert_eq!(status, EXECUTION_FAILURE);
+        assert_eq!(status, super::unset::EX_UTILERROR);
         assert!(stderr.contains("`1BAD': not a valid identifier"));
 
         let (silent_status, silent_stderr) = run(&["1BAD"], &mut env_vars);

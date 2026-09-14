@@ -119,7 +119,16 @@ impl Executor {
             } else if let Some(FdWriteEndpoint::File(path)) = self.fd_table.write_endpoint(1) {
                 let file = OpenOptions::new().create(true).append(true).open(path)?;
                 process.stdout(Stdio::from(file));
-            } else if self.stdout_capture.is_some() {
+            } else if self.stdout_capture.is_some()
+                || crate::executor::shell_options::stdout_capture_active()
+            {
+                // The thread-local capture covers builtin pipeline stages
+                // (execute_builtin_pipeline_stage): a builtin that spawns an
+                // external command transitively (`command find`, `eval
+                // "find ..."`, `env find`) must pipe that child's stdout into
+                // the stage capture instead of inheriting the process
+                // stdout, where it would leak past the downstream pipe
+                // element (unixwin/niubash#93).
                 process.stdout(Stdio::piped());
             }
         }
@@ -261,7 +270,10 @@ impl Executor {
         {
             return Ok(());
         }
-        if self.stdout_capture.is_some() && !self.external_stdout_copies_to_stderr(cmd) {
+        if (self.stdout_capture.is_some()
+            || crate::executor::shell_options::stdout_capture_active())
+            && !self.external_stdout_copies_to_stderr(cmd)
+        {
             self.write_default_stdout(stdout)?;
         }
         if self.external_stdout_copies_to_stderr(cmd) {
@@ -321,6 +333,7 @@ impl Executor {
 
     pub(in crate::executor) fn external_needs_fd_copy_capture(&self, cmd: &CommandNode) -> bool {
         self.stdout_capture.is_some()
+            || crate::executor::shell_options::stdout_capture_active()
             || self.command_needs_ordered_output_capture(cmd)
             || self.external_stdout_copies_to_stderr(cmd)
             || self.external_stderr_copies_to_stdout(cmd)

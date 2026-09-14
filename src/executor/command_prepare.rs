@@ -792,7 +792,35 @@ impl Executor {
                 .and_then(|spans| spans.first().map(|span| span.context))
                 .unwrap_or(SubstitutionQuoteContext::Unquoted)
         };
-        let expanded = self.expand_word_mut_with_context(word, context);
+        // GNU marks literal word characters with CTLESC during expansion
+        // (subst.c expand_word_internal), so only expansion results are
+        // eligible for IFS splitting. Rubash's expansion does not carry
+        // CTLESC, so we mark literal non-whitespace IFS characters in the
+        // word with \x1c before expansion. The sentinel passes through the
+        // expansion walker unchanged and the field splitter consumes it.
+        // Only applied when IFS has non-whitespace characters and the word
+        // has unquoted expansions (parameter or command substitution).
+        let ifs_has_non_whitespace = self
+            .env_vars
+            .get("IFS")
+            .map(|ifs| ifs.chars().any(|ch| !matches!(ch, ' ' | '\t' | '\n')))
+            .unwrap_or(false);
+        let needs_ifs_marking = ifs_has_non_whitespace
+            && !word.starts_with('\x1d')
+            && !word.starts_with('\x1b')
+            && raw.is_some_and(|raw| {
+                raw_word_has_unquoted_parameter_expansion(raw)
+                    || word_has_unquoted_command_substitution(raw)
+            });
+        let marked_word;
+        let word_to_expand: &str = if needs_ifs_marking {
+            let ifs = self.env_vars.get("IFS").map(String::as_str).unwrap_or("");
+            marked_word = mark_literal_ifs_chars(word, ifs);
+            &marked_word
+        } else {
+            word
+        };
+        let expanded = self.expand_word_mut_with_context(word_to_expand, context);
         // GNU does not apply quote removal to parameter-expansion results:
         // quotes in an expanded value are literal data, not syntax. Calling
         // remove_shell_quotes here dropped a trailing quote such as the x'
@@ -836,11 +864,11 @@ impl Executor {
             {
                 return vec![prepared];
             }
-            return vec![expanded];
+            return vec![strip_ifs_protection_markers(&expanded)];
         }
         if assignment_builtin_receives_assignment_word(cmd, index, word) {
             return vec![strip_assignment_builtin_command_subst_quotes(
-                &expanded, raw,
+                &strip_ifs_protection_markers(&expanded), raw,
             )];
         }
         if let Some(formatted) = self.expand_unquoted_parameter_transform_word(word) {
@@ -851,7 +879,7 @@ impl Executor {
         } else if raw_word_contains_process_substitution(raw)
             && expanded_word_has_process_substitution(&expanded)
         {
-            vec![expanded]
+            vec![strip_ifs_protection_markers(&expanded)]
         } else if let Some(values) = self.field_split_word_with_quoted_empty_suffix(raw, &expanded)
         {
             values
@@ -875,7 +903,7 @@ impl Executor {
             // not to parameter-expansion results.
             field_split_values_with_ifs(&decoded, self.env_vars.get("IFS").map(String::as_str))
         } else {
-            vec![expanded]
+            vec![strip_ifs_protection_markers(&expanded)]
         }
     }
 
@@ -925,6 +953,8 @@ impl Executor {
         if narrow
             && !alternate.contains("$@")
             && !alternate.contains("$*")
+            && !alternate.contains("${*")
+            && !alternate.contains("${@")
             && !alternate.contains('"')
             && !alternate.contains('\'')
             && !parameter_word_has_escaped_whitespace(alternate)
@@ -995,8 +1025,47 @@ impl Executor {
                 None => {}
             }
         }
-        let positional_at =
-            alternate.contains("$@") || alternate.contains("${@}") || alternate.contains("$*");
+        // GNU subst.c param_expand: the alternate word of ${param-OPword}
+        // expands $@/$* with PF_ASSIGNRHS. For modified forms like ${@/} or
+        // ${*,,}, a non-null IFS joins the positionals first (space for $@,
+        // IFS[0] for $*), applies the modification to the joined string, then
+        // field-splits per the ambient IFS (string_list_dollar_at /
+        // string_list_dollar_star with PF_ASSIGNRHS, subst.c:7840-7860). A
+        // null IFS leaves $@ on the per-parameter path (the re-parse path
+        // below), which already matches GNU.
+        if !outer_double_quoted
+            && !self.positional_params.is_empty()
+            && (alternate.starts_with("${@") || alternate.starts_with("${*"))
+            && alternate.ends_with('}')
+        {
+            if let Some(ifs) = self.env_vars.get("IFS").map(String::as_str) {
+                if !ifs.is_empty() {
+                    let inner = &alternate[2..alternate.len() - 1];
+                    let separator = if inner.starts_with('*') {
+                        self.ifs_first_char_separator()
+                    } else {
+                        " ".to_string()
+                    };
+                    let joined = self.positional_params.join(&separator);
+                    let saved = std::mem::take(&mut self.positional_params);
+                    self.positional_params = vec![joined];
+                    let values =
+                        self.quoted_positional_at_word_values(alternate, None);
+                    self.positional_params = saved;
+                    if let Some(values) = values {
+                        let result: Vec<String> = values
+                            .into_iter()
+                            .flat_map(|value| field_split_values_with_ifs(&value, Some(ifs)))
+                            .collect();
+                        return Some(result);
+                    }
+                }
+            }
+        }
+        let positional_at = alternate.contains("$@")
+            || alternate.contains("${@")
+            || alternate.contains("$*")
+            || alternate.contains("${*");
         let posix_literal_quotes = self.posix_mode_enabled()
             && alternate.starts_with("\"")
             && alternate.ends_with("\"")
@@ -1056,13 +1125,6 @@ impl Executor {
             return None;
         }
         let inner = &braced[2..braced.len() - 1];
-        if !inner.contains("$@")
-            && !inner.contains("${@}")
-            && !inner.contains("$*")
-            && !inner.contains("${*}")
-        {
-            return None;
-        }
         let (var_name, alternate, use_when_set, require_non_empty) =
             if let Some((var_name, alternate)) = inner.split_once(":+") {
                 (var_name, alternate, true, true)
@@ -1082,9 +1144,37 @@ impl Executor {
         } else {
             value.is_none() || (require_non_empty && value.unwrap_or_default().is_empty())
         };
+
+        // GNU subst.c param_expand: when the parameter itself is $@ or $*
+        // and it is set, the `-`/`:-` operator just uses the parameter's
+        // value (TEMP), which carries W_DOLLARAT for $@. In double quotes
+        // that means one field per positional parameter (like `"$@"`),
+        // and $* joins with IFS[0] into one field (like `"$*"`). The
+        // String-based operator path collapses these to a single joined
+        // field, so intercept here and return the per-parameter fields.
+        if !word_used && var_name == "@" {
+            return Some(self.positional_params.clone());
+        }
+        if !word_used && var_name == "*" {
+            return Some(vec![self
+                .positional_params
+                .join(&self.ifs_first_char_separator())]);
+        }
+
         if !word_used {
             // Alternate unused: quoted-empty/quoted-null handling belongs to
             // the existing paths, which already match GNU for those forms.
+            return None;
+        }
+
+        // The alternate is used. Only the alternate words that contain
+        // $@/$* need the per-parameter re-expansion path; others fall back
+        // to the String-based operator path.
+        if !inner.contains("$@")
+            && !inner.contains("${@")
+            && !inner.contains("$*")
+            && !inner.contains("${*")
+        {
             return None;
         }
 
@@ -1156,9 +1246,9 @@ impl Executor {
         let inner = &braced[2..braced.len() - 1];
         // Quoted-at alternates keep their dedicated word-boundary paths.
         if inner.contains("$@")
-            || inner.contains("${@}")
+            || inner.contains("${@")
             || inner.contains("$*")
-            || inner.contains("${*}")
+            || inner.contains("${*")
         {
             return None;
         }
@@ -1705,6 +1795,169 @@ fn raw_has_quoted_empty_suffix(raw: &str) -> bool {
     raw.ends_with("''") || raw.ends_with("\"\"")
 }
 
+/// Mark literal IFS characters in the word with \x1c so the field splitter
+/// keeps them as field data. GNU marks literal word characters with CTLESC
+/// during expansion (subst.c expand_word_internal), so only characters that
+/// come from variable/command expansion (without CTLESC) are eligible for
+/// IFS splitting. Rubash's expansion does not carry CTLESC, so we mark
+/// literal IFS characters here before expansion; the \x1c sentinel passes
+/// through the expansion walker unchanged and the field splitter consumes
+/// it (arrays.rs split_ifs_whitespace / split_mixed_ifs / the
+/// non-whitespace IFS path).
+///
+/// Only non-whitespace IFS characters are marked: whitespace IFS characters
+/// (space, tab, newline) are already consumed as word boundaries by the
+/// lexer, so literal whitespace never reaches field splitting.
+fn mark_literal_ifs_chars(word: &str, ifs: &str) -> String {
+    let chars: Vec<char> = word.chars().collect();
+    let mut output = String::with_capacity(word.len());
+    let mut index = 0;
+    while index < chars.len() {
+        let ch = chars[index];
+        if ch == '$' {
+            if let Some(&next) = chars.get(index + 1) {
+                if is_shell_name_start(next) {
+                    // $name — copy through, skip the name characters
+                    output.push(ch);
+                    index += 1;
+                    while index < chars.len() && is_shell_name_char(chars[index]) {
+                        output.push(chars[index]);
+                        index += 1;
+                    }
+                    continue;
+                }
+                if next == '{' {
+                    // ${...} — copy through, skip the braced parameter body
+                    output.push(ch);
+                    index += 1;
+                    let end = skip_raw_braced_parameter(&chars, index + 1);
+                    while index < end {
+                        output.push(chars[index]);
+                        index += 1;
+                    }
+                    continue;
+                }
+                if next == '(' {
+                    // $(...) or $((...))
+                    output.push(ch);
+                    index += 1;
+                    if chars.get(index + 1) == Some(&'(') {
+                        // $((...)) — copy through, skip until matching ))
+                        output.push(chars[index]);
+                        index += 1;
+                        output.push(chars[index]);
+                        index += 1;
+                        let mut depth = 1usize;
+                        while index < chars.len() {
+                            if chars[index] == '(' {
+                                depth += 1;
+                            } else if chars[index] == ')' {
+                                depth = depth.saturating_sub(1);
+                                if depth == 0 {
+                                    output.push(chars[index]);
+                                    index += 1;
+                                    if index < chars.len() && chars[index] == ')' {
+                                        output.push(chars[index]);
+                                        index += 1;
+                                    }
+                                    break;
+                                }
+                            }
+                            output.push(chars[index]);
+                            index += 1;
+                        }
+                    } else {
+                        // $(...) — copy through, skip until matching )
+                        let end = skip_raw_command_substitution(&chars, index + 1);
+                        while index < end {
+                            output.push(chars[index]);
+                            index += 1;
+                        }
+                    }
+                    continue;
+                }
+                if matches!(next, '?' | '$' | '!' | '@' | '*' | '#' | '-' | '0'..='9') {
+                    // $special — copy through, skip one character
+                    output.push(ch);
+                    index += 1;
+                    output.push(chars[index]);
+                    index += 1;
+                    continue;
+                }
+                // $ followed by something else — literal $
+                output.push(ch);
+                index += 1;
+                continue;
+            }
+            // $ at end of word — literal $
+            output.push(ch);
+            index += 1;
+            continue;
+        }
+        if ch == '`' {
+            // Backtick — copy through, skip the body
+            output.push(ch);
+            index += 1;
+            let end = skip_raw_backtick(&chars, index);
+            while index < end {
+                output.push(chars[index]);
+                index += 1;
+            }
+            continue;
+        }
+        if ch == '\\' {
+            // Escape sequence — copy through
+            output.push(ch);
+            index += 1;
+            if index < chars.len() {
+                output.push(chars[index]);
+                index += 1;
+            }
+            continue;
+        }
+        // Protected markers from the lexer — copy through
+        if matches!(ch, '\x1f' | '\x1a' | '\x17' | '\x18' | '\x14' | '\x13') {
+            output.push(ch);
+            index += 1;
+            continue;
+        }
+        // CTLESC (\x11) — protects the next character, copy both through
+        if ch == '\x11' {
+            output.push(ch);
+            index += 1;
+            if index < chars.len() {
+                output.push(chars[index]);
+                index += 1;
+            }
+            continue;
+        }
+        // Existing \x1c markers — copy through with the protected char
+        if ch == '\x1c' {
+            output.push(ch);
+            index += 1;
+            if index < chars.len() {
+                output.push(chars[index]);
+                index += 1;
+            }
+            continue;
+        }
+        // Literal character — mark non-whitespace IFS chars with \x1c
+        if ifs.contains(ch) && !matches!(ch, ' ' | '\t' | '\n') {
+            output.push('\x1c');
+        }
+        output.push(ch);
+        index += 1;
+    }
+    output
+}
+
+/// Strip \x1c IFS-protection markers from a string. Used for non-field-split
+/// return paths where the markers served their purpose (or were never
+/// needed) and must not leak into command arguments or assignment values.
+fn strip_ifs_protection_markers(value: &str) -> String {
+    value.replace('\x1c', "")
+}
+
 fn field_split_escaped_ifs(value: &str, ifs: Option<&str>) -> Vec<String> {
     const PROTECTED_IFS: char = '\u{1e}';
     let ifs = ifs.unwrap_or(" \t\n");
@@ -1729,9 +1982,14 @@ fn field_split_escaped_ifs(value: &str, ifs: Option<&str>) -> Vec<String> {
 }
 
 fn expanded_ends_with_ifs_separator(expanded: &str, executor: &Executor) -> bool {
-    let Some(last) = expanded.chars().last() else {
+    let chars: Vec<char> = expanded.chars().collect();
+    let Some(last) = chars.last().copied() else {
         return false;
     };
+    // A \x1c-protected literal IFS char at the end is data, not a separator.
+    if chars.len() >= 2 && chars[chars.len() - 2] == '\x1c' {
+        return false;
+    }
     executor
         .env_vars
         .get("IFS")

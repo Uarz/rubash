@@ -29,8 +29,69 @@ pub(in crate::executor) fn split_shell_words_with_quote_info(source: &str) -> Ve
             continue;
         }
 
+        // GNU parse.y/quotes.rs quote removal: backslash handling depends on
+        // the surrounding quote state. Outside quotes a backslash escapes any
+        // character and is removed. Inside double quotes the backslash only
+        // retains its special meaning before \, $, `, ", and newline; before
+        // other characters it is preserved. Inside single quotes the backslash
+        // is literal. Without this, command substitution bodies that bypass
+        // the lexer's quote removal (e.g. `$(echo \a)`) keep the backslash
+        // where GNU removes it (more-exp.tests:297 `recho \a` -> a).
+        if ch == '\\' {
+            match quote {
+                None => {
+                    let Some(escaped) = chars.next() else {
+                        current.push(ch);
+                        continue;
+                    };
+                    match escaped {
+                        '\\' => current.push('\x14'),
+                        '$' => current.push('\x1f'),
+                        '`' => current.push('\x1a'),
+                        '\'' => current.push('\x17'),
+                        '"' => current.push('\x18'),
+                        '\n' => {}
+                        _ => current.push(escaped),
+                    }
+                    continue;
+                }
+                Some('"') => {
+                    match chars.peek().copied() {
+                        Some(escaped @ ('\\' | '"' | '$' | '`' | '\n')) => {
+                            chars.next();
+                            match escaped {
+                                '\\' => current.push('\x14'),
+                                '"' => current.push('\x18'),
+                                '$' => current.push('\x1f'),
+                                '`' => current.push('\x1a'),
+                                '\n' => {}
+                                _ => unreachable!(),
+                            }
+                            continue;
+                        }
+                        _ => {
+                            current.push(ch);
+                            continue;
+                        }
+                    }
+                }
+                _ => {
+                    // Inside single quotes: fall through to the match block so
+                    // push_single_quoted_shell_word_char converts \ to \x15,
+                    // preserving the literal through unescape_remaining_shell_escapes.
+                }
+            }
+        }
+
         match (ch, quote) {
             ('$', None) if chars.peek().copied() == Some('(') => {
+                copy_dollar_paren_word(&mut current, &mut chars);
+            }
+            // Inside double quotes, `$(...)` is still a command substitution
+            // (GNU parse.y `xparse_dolparen`): a `"` inside the nested `$(...)`
+            // does NOT close the outer double quote.  Consume the whole
+            // `$(...)` as a unit so the outer quote state is preserved.
+            ('$', Some('"')) if chars.peek().copied() == Some('(') => {
                 copy_dollar_paren_word(&mut current, &mut chars);
             }
             ('<', None) if chars.peek().copied() == Some('(') => {
@@ -39,6 +100,12 @@ pub(in crate::executor) fn split_shell_words_with_quote_info(source: &str) -> Ve
             ('`', None) => {
                 backtick = true;
                 current.push(ch);
+            }
+            // Inside double quotes, backticks are command substitutions: a `"`
+            // inside the backtick body does NOT close the outer double quote.
+            ('`', Some('"')) => {
+                current.push(ch);
+                copy_backtick_word_part(&mut current, &mut chars);
             }
             ('\'' | '"', None) => {
                 quote = Some(ch);
@@ -70,7 +137,19 @@ fn copy_dollar_paren_word(
         return;
     }
     current.push('(');
+    copy_dollar_paren_body(current, chars);
+}
 
+/// Copies the body of a `$(...)` command substitution (after the leading `$(
+/// has already been consumed and pushed), tracking parenthesis depth, quote
+/// state, backticks, and nested `$(...)`.  A `)` inside single or double
+/// quotes does NOT count toward the parenthesis depth — this mirrors GNU
+/// `extract_command_substitution` (subst.c) and `xparse_dolparen` (parse.y),
+/// where the parser tracks quote state independently inside the substitution.
+fn copy_dollar_paren_body(
+    current: &mut String,
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+) {
     let mut depth = 1usize;
     while let Some(ch) = chars.next() {
         current.push(ch);
@@ -113,36 +192,21 @@ fn copy_process_substitution_word(
         return;
     }
     current.push('(');
-
-    let mut depth = 1usize;
-    while let Some(ch) = chars.next() {
-        current.push(ch);
-        match ch {
-            '\\' => {
-                if let Some(escaped) = chars.next() {
-                    current.push(escaped);
-                }
-            }
-            '\'' => copy_quoted_word_part(current, chars, '\''),
-            '"' => copy_quoted_word_part(current, chars, '"'),
-            '`' => copy_backtick_word_part(current, chars),
-            '$' if chars.peek().copied() == Some('(') => {
-                chars.next();
-                current.push('(');
-                depth += 1;
-            }
-            '(' => depth += 1,
-            ')' => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
+    copy_dollar_paren_body(current, chars);
 }
 
+/// Copies characters until the matching closing quote, honouring nested
+/// `$(...)` command substitutions and backticks when inside double quotes.
+///
+/// Inside double quotes, `$(...)` and `` `...` `` are still parsed as command
+/// substitutions (GNU parse.y `xparse_dolparen` / subst.c
+/// `extract_command_substitution`): a `"` that appears *inside* a nested
+/// `$(...)` or backtick body does NOT close the outer double quote.  Without
+/// this, `$(echo "foo$(echo ")")")` misparses the inner `"` as the close of
+/// the outer quote, leaving stray `)` characters in the word.
+///
+/// Single quotes have no special characters inside, so only the closing `'`
+/// is tracked.
 fn copy_quoted_word_part(
     current: &mut String,
     chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
@@ -156,6 +220,18 @@ fn copy_quoted_word_part(
             }
         } else if ch == quote {
             break;
+        } else if quote == '"' && ch == '$' && chars.peek().copied() == Some('(') {
+            // Nested command substitution inside double quotes: consume the
+            // full `$(...)` body so a `"` inside it does not close the outer
+            // double quote.
+            chars.next();
+            current.push('(');
+            copy_dollar_paren_body(current, chars);
+        } else if quote == '"' && ch == '`' {
+            // Backtick command substitution inside double quotes: consume
+            // until the matching backtick so a `"` inside does not close the
+            // outer double quote.
+            copy_backtick_word_part(current, chars);
         }
     }
 }

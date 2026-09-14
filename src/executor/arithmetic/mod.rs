@@ -63,6 +63,9 @@ pub(crate) enum ArithmeticErrorCategory {
     InvalidLiteral,
     NonVariableAssignment,
     EvaluatorFailure,
+    /// GNU expr.c:484-485: `curtok != 0` after `EXP_LOWEST()` — trailing
+    /// input after a successful parse, e.g. `(( x=9 y=41 ))`.
+    TrailingInput,
 }
 
 impl Executor {
@@ -446,6 +449,45 @@ pub(crate) fn arithmetic_error_category(expression: &str) -> Option<ArithmeticEr
     let mut env_vars = HashMap::new();
     let (_, category) = eval_mutable_arith_result(expression, &mut env_vars, None);
     category
+}
+
+/// GNU expr.c:484-485: when `curtok != 0` after `EXP_LOWEST()`, the parser
+/// reports "arithmetic syntax error in expression" with `lasttp` as the
+/// error token. `lasttp` points to the start of the last-read token, which
+/// for a trailing-input case like `x=9 y=41 ` is the beginning of the
+/// unparsed remainder (`y=41 `, trailing blank included). This function
+/// re-parses the expression and returns that trailing remainder so the
+/// diagnostic can format it exactly as GNU does.
+pub(in crate::executor) fn trailing_input_token(expression: &str) -> Option<String> {
+    let normalized = normalize_arithmetic_quotes(expression);
+    if normalized.trim().is_empty() {
+        return None;
+    }
+    // Numeric assignment expressions like `7 = 43` are handled by the
+    // non-variable-assignment path, not the trailing-input path.
+    if numeric_assignment_expression(&normalized) {
+        return None;
+    }
+    let mut env_vars = HashMap::new();
+    let mut parser = ConditionalArithParser {
+        input: normalized.as_bytes(),
+        pos: 0,
+        env_vars: &mut env_vars,
+        resolving: Vec::new(),
+        random_state: None,
+        error_category: None,
+    };
+    let _ = parser.parse_comma();
+    parser.skip_ws();
+    if parser.pos < parser.input.len() {
+        // GNU lasttp points to the token start; the remainder from there to
+        // the end of the expression is the error token (trailing blank kept).
+        let token = &normalized[parser.pos..];
+        if !token.is_empty() {
+            return Some(token.to_string());
+        }
+    }
+    None
 }
 
 pub(crate) fn eval_conditional_arith_value(
@@ -927,6 +969,21 @@ fn arithmetic_error_message_ctx(
         ));
     }
 
+    // GNU expr.c:484-485: `curtok != 0` after `EXP_LOWEST()` — trailing
+    // input after a successful sub-expression parse, e.g. `(( x=9 y=41 ))`
+    // reports "arithmetic syntax error in expression" with the unparsed
+    // remainder as the error token.
+    if let Some(token) = trailing_input_token(expression) {
+        let msg = if command_context {
+            "arithmetic syntax error in expression"
+        } else {
+            "syntax error in expression"
+        };
+        return Some(format!(
+            "{expression}: {msg} (error token is \"{token}\")"
+        ));
+    }
+
     // An operator missing its right-hand operand (`j=`, `7++`, `3**`,
     // `j+=`, `7<=`, ...).  GNU expr.c reports these from the recursive
     // descent with the error token taken from lasttp.
@@ -1265,10 +1322,13 @@ fn eval_mutable_arith_result(
     };
     let value = parser.parse_comma();
     parser.skip_ws();
-    let value = value.filter(|_| parser.pos == parser.input.len());
+    let trailing = parser.pos != parser.input.len();
+    let value = value.filter(|_| !trailing);
     let category = parser.error_category.or_else(|| {
         if value.is_none() && numeric_assignment_expression(&normalized) {
             Some(ArithmeticErrorCategory::NonVariableAssignment)
+        } else if trailing {
+            Some(ArithmeticErrorCategory::TrailingInput)
         } else if value.is_none() {
             Some(ArithmeticErrorCategory::EvaluatorFailure)
         } else {

@@ -216,18 +216,39 @@ pub(in crate::executor) fn command_substitution_spans_whole_word(word: &str) -> 
         return false;
     };
 
+    let chars: Vec<(usize, char)> = rest.char_indices().collect();
     let mut depth = 1usize;
     let mut single = false;
     let mut double = false;
     let mut escaped = false;
-    for (index, ch) in rest.char_indices() {
+    let mut index = 0usize;
+    while index < chars.len() {
+        let (offset, ch) = chars[index];
         if escaped {
             escaped = false;
+            index += 1;
             continue;
         }
         if ch == '\\' && !single {
             escaped = true;
+            index += 1;
             continue;
+        }
+        // Inside double quotes, `$(...)` is a nested command substitution
+        // (GNU parse.y `xparse_dolparen` / subst.c
+        // `extract_command_substitution`): a `"` inside the nested `$(...)`
+        // does NOT close the outer double quote.  Skip the nested `$(...)`
+        // as a unit *before* the `"` toggle below so the outer `double`
+        // state is preserved.
+        if double
+            && ch == '$'
+            && chars.get(index + 1).is_some_and(|(_, next)| *next == '(')
+            && chars.get(index + 2).is_none_or(|(_, next)| *next != '(')
+        {
+            if let Some(next_index) = skip_nested_dollar_paren_whole_word(&chars, index) {
+                index = next_index;
+                continue;
+            }
         }
         match ch {
             '\'' if !double => single = !single,
@@ -236,13 +257,83 @@ pub(in crate::executor) fn command_substitution_spans_whole_word(word: &str) -> 
             ')' if !single && !double => {
                 depth = depth.saturating_sub(1);
                 if depth == 0 {
-                    return index + ch.len_utf8() == rest.len();
+                    return offset + ch.len_utf8() == rest.len();
                 }
             }
             _ => {}
         }
+        index += 1;
     }
     false
+}
+
+/// Skip a nested `$(...)` command substitution that appears inside double
+/// quotes, returning the character index just past the matching `)`.
+/// The nested `$(...)` has its own independent quote state so a `"` inside
+/// it does not affect the caller's `double` flag.  Mirrors GNU
+/// `xparse_dolparen` (parse.y) and `extract_command_substitution` (subst.c).
+fn skip_nested_dollar_paren_whole_word(
+    chars: &[(usize, char)],
+    start: usize,
+) -> Option<usize> {
+    let mut depth = 1usize;
+    let mut cursor = start + 2; // skip `$(``
+    let mut single = false;
+    let mut double = false;
+    let mut escaped = false;
+    while cursor < chars.len() {
+        let (_, ch) = chars[cursor];
+        if escaped {
+            escaped = false;
+            cursor += 1;
+            continue;
+        }
+        if ch == '\\' && !single {
+            escaped = true;
+            cursor += 1;
+            continue;
+        }
+        if ch == '\'' && !double {
+            single = !single;
+            cursor += 1;
+            continue;
+        }
+        // Recursively skip nested `$(...)` inside double quotes.
+        if double
+            && ch == '$'
+            && chars.get(cursor + 1).is_some_and(|(_, next)| *next == '(')
+            && chars.get(cursor + 2).is_none_or(|(_, next)| *next != '(')
+        {
+            if let Some(next_cursor) = skip_nested_dollar_paren_whole_word(chars, cursor) {
+                cursor = next_cursor;
+                continue;
+            }
+        }
+        if ch == '"' && !single {
+            double = !double;
+            cursor += 1;
+            continue;
+        }
+        if !single && !double && ch == '$'
+            && chars.get(cursor + 1).is_some_and(|(_, next)| *next == '(')
+            && chars.get(cursor + 2).is_none_or(|(_, next)| *next != '(')
+        {
+            depth += 1;
+            cursor += 2;
+            continue;
+        }
+        if !single && !double && ch == '(' {
+            depth += 1;
+        }
+        if !single && !double && ch == ')' {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                return Some(cursor + 1);
+            }
+        }
+        cursor += 1;
+    }
+    None
 }
 
 pub(in crate::executor) fn backtick_substitution_spans_whole_word(word: &str) -> bool {

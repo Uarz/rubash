@@ -265,10 +265,6 @@ pub(super) fn shell_quote(value: &str) -> String {
         return "''".to_string();
     }
 
-    if value == "~" {
-        return "\\~".to_string();
-    }
-
     // Raw-byte marker pairs (U+E000 + U+E0xx payload) carry bytes that do
     // not form printable characters. GNU printf %q renders such a value as
     // $'...' with one octal escape per non-printable byte (strtrans.c
@@ -287,16 +283,66 @@ pub(super) fn shell_quote(value: &str) -> String {
         return ansi_c_shell_quote(value);
     }
 
-    let mut quoted = String::new();
-    for ch in value.chars() {
-        if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '/' | '.' | '-' | ':') {
-            quoted.push(ch);
-        } else {
+    // GNU shquote.c sh_backslash_quote with flags=3 (printf.def:702): the
+    // default bstab table determines which characters get a backslash.
+    // Additionally, `#` at the start of the string is backslash-quoted
+    // (comment char), and `~` at the start or after `:` / `=` is
+    // backslash-quoted (tilde expansion, flags & 1). Non-ASCII printable
+    // characters are copied verbatim (shquote.c COPY_CHAR_P in the
+    // HANDLE_MULTIBYTE branch).
+    backslash_quote(value)
+}
+
+/// GNU shquote.c `sh_backslash_quote` with `flags = 3` (the `printf %q`
+/// call site at printf.def:702). The default `bstab` table marks which
+/// characters receive a backslash; `flags & 1` additionally quotes `~` at
+/// the start of the word or after `:` / `=`, and `#` at the start is always
+/// quoted as a comment character.
+fn backslash_quote(value: &str) -> String {
+    let mut quoted = String::with_capacity(value.len() * 2);
+    let chars: Vec<char> = value.chars().collect();
+    for (position, &ch) in chars.iter().enumerate() {
+        if needs_backslash(ch, position, &chars) {
             quoted.push('\\');
-            quoted.push(ch);
         }
+        quoted.push(ch);
     }
     quoted
+}
+
+fn needs_backslash(ch: char, position: usize, chars: &[char]) -> bool {
+    if !ch.is_ascii() {
+        // GNU sh_backslash_quote: multibyte characters are copied verbatim
+        // (shquote.c COPY_CHAR_P in the HANDLE_MULTIBYTE branch).
+        return false;
+    }
+    if bstab_needs_quote(ch) {
+        return true;
+    }
+    // shquote.c: `#` at the start of the string is a comment char.
+    if ch == '#' {
+        return position == 0;
+    }
+    // shquote.c flags & 1: `~` at the start or after `:` / `=` is special.
+    if ch == '~' {
+        return position == 0 || matches!(chars.get(position - 1), Some(':' | '='));
+    }
+    false
+}
+
+/// GNU shquote.c `bstab` table: characters that always receive a backslash.
+/// Control characters (TAB, NL) are listed for fidelity to the C source but
+/// are caught earlier by the `is_control()` ansic_shouldquote gate.
+fn bstab_needs_quote(ch: char) -> bool {
+    matches!(
+        ch,
+        '\t' | '\n'
+            | ' ' | '!' | '"' | '$' | '&' | '\''
+            | '(' | ')' | '*' | ','
+            | ';' | '<' | '>' | '?'
+            | '[' | '\\' | ']' | '^' | '`'
+            | '{' | '|' | '}'
+    )
 }
 
 /// GNU strtrans.c ansic_quote over the raw byte string (printf %q of a

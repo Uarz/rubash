@@ -123,6 +123,23 @@ fn dollar_command_substitution(
                 continue;
             }
         }
+        // Inside double quotes, `$(...)` is a nested command substitution
+        // (GNU parse.y `xparse_dolparen` / subst.c `extract_command_substitution`):
+        // a `"` inside the nested `$(...)` does NOT close the outer double
+        // quote.  Recursively skip the nested `$(...)` as a unit so the
+        // outer `double` state is preserved.  Without this,
+        // `$(echo "foo$(echo ")")")` misparses the inner `"` as the close of
+        // the outer quote, truncating the substitution body.
+        if double
+            && ch == '$'
+            && chars.get(index + 1) == Some(&'(')
+            && chars.get(index + 2) != Some(&'(')
+        {
+            if let Some((_, next_index)) = dollar_command_substitution(chars, index) {
+                index = next_index;
+                continue;
+            }
+        }
         // Heredoc bodies are opaque to command-substitution delimiter matching.
         if ch == '<' && !single && !double && chars.get(index + 1) == Some(&'<') {
             if let Some((next_index, header_closes)) =

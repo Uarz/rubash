@@ -544,6 +544,28 @@ pub(in crate::executor) fn scan_substitution_spans(raw: &str) -> Vec<Substitutio
                     if inner == '\'' && !inner_double {
                         inner_single = !inner_single;
                     }
+                    // Inside double quotes, `$(...)` is a nested command
+                    // substitution (GNU parse.y `xparse_dolparen` / subst.c
+                    // `extract_command_substitution`): a `"` inside the nested
+                    // `$(...)` does NOT close the outer double quote.  Skip the
+                    // nested `$(...)` as a unit *before* the `"` toggle below so
+                    // the outer `inner_double` state is preserved.
+                    if inner_double
+                        && inner == '$'
+                        && chars
+                            .get(cursor + 1)
+                            .is_some_and(|(_, next)| *next == '(')
+                        && chars
+                            .get(cursor + 2)
+                            .is_none_or(|(_, next)| *next != '(')
+                    {
+                        if let Some(next_cursor) =
+                            skip_nested_dollar_paren_in_span(&chars, cursor)
+                        {
+                            cursor = next_cursor;
+                            continue;
+                        }
+                    }
                     if inner == '"' && !inner_single {
                         inner_double = !inner_double;
                     }
@@ -579,6 +601,78 @@ pub(in crate::executor) fn scan_substitution_spans(raw: &str) -> Vec<Substitutio
         index += 1;
     }
     spans
+}
+
+/// Skip a nested `$(...)` command substitution that appears inside double
+/// quotes within a command-substitution span, returning the character index
+/// just past the matching `)`.
+///
+/// The nested `$(...)` has its own independent quote state: a `"` inside it
+/// does not affect the caller's `inner_double` flag.  This mirrors GNU
+/// `xparse_dolparen` (parse.y) and `extract_command_substitution` (subst.c),
+/// where the parser tracks quote state independently inside each nested
+/// substitution.
+fn skip_nested_dollar_paren_in_span(chars: &[(usize, char)], start: usize) -> Option<usize> {
+    let mut depth = 1usize;
+    let mut cursor = start + 2; // skip `$(``
+    let mut single = false;
+    let mut double = false;
+    while cursor < chars.len() {
+        let (_, ch) = chars[cursor];
+        if ch == '\\' && !single {
+            cursor += 2;
+            continue;
+        }
+        if ch == '\'' && !double {
+            single = !single;
+            cursor += 1;
+            continue;
+        }
+        if ch == '"' && !single {
+            double = !double;
+            cursor += 1;
+            continue;
+        }
+        // Recursively skip nested `$(...)` inside double quotes so a `"`
+        // inside it does not toggle our `double` flag.
+        if double
+            && ch == '$'
+            && chars
+                .get(cursor + 1)
+                .is_some_and(|(_, next)| *next == '(')
+            && chars
+                .get(cursor + 2)
+                .is_none_or(|(_, next)| *next != '(')
+        {
+            if let Some(next_cursor) = skip_nested_dollar_paren_in_span(chars, cursor) {
+                cursor = next_cursor;
+                continue;
+            }
+        }
+        if !single && !double && ch == '$'
+            && chars
+                .get(cursor + 1)
+                .is_some_and(|(_, next)| *next == '(')
+            && chars
+                .get(cursor + 2)
+                .is_none_or(|(_, next)| *next != '(')
+        {
+            depth += 1;
+            cursor += 2;
+            continue;
+        }
+        if !single && !double && ch == '(' {
+            depth += 1;
+        }
+        if !single && !double && ch == ')' {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                return Some(cursor + 1);
+            }
+        }
+        cursor += 1;
+    }
+    None
 }
 
 /// Advance past a here-document that appears inside a command-substitution
