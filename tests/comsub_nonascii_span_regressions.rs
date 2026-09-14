@@ -69,3 +69,32 @@ fn quoted_literal_whitespace_survives_split_policy() {
     assert_eq!(rubash("echo \"a b$(echo h)\"$(echo x)"), "a bhx\n");
     assert_eq!(rubash("echo \"中 文$(echo h)\"$(echo x)"), "中 文hx\n");
 }
+
+// Same byte/char-boundary class one subsystem over: the comsub heredoc
+// header scanner widened each byte with `as char`, so a delimiter char
+// whose UTF-8 carries a 0x85/0xa0 continuation byte (悠 = U+60A0, the
+// U+E0A0 powerline glyph, ...) satisfied `is_whitespace` mid-char and the
+// `&line[start..index]` slice panicked inside `$(...)`.
+
+#[test]
+fn multibyte_heredoc_delimiter_inside_command_substitution() {
+    assert_eq!(
+        rubash("x=$(cat <<E\u{60a0}F\nhi\nE\u{60a0}F\n); echo \"$x\""),
+        "hi\n"
+    );
+    assert_eq!(
+        rubash("echo \"$(cat <<E\u{60a0}F\nhi\nE\u{60a0}F\n)\""),
+        "hi\n"
+    );
+    assert_eq!(rubash("x=$(cat <<中文\nbody\n中文\n); echo \"$x\""), "body\n");
+}
+
+#[test]
+fn escaped_multibyte_heredoc_delimiter_inside_command_substitution() {
+    // `<<E\悠F` quotes the char: the delimiter is E悠F. The escape skip must
+    // step over the whole char, not just two bytes.
+    assert_eq!(
+        rubash("x=$(cat <<E\\\u{60a0}F\nhi\nE\u{60a0}F\n); echo \"$x\""),
+        "hi\n"
+    );
+}
