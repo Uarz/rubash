@@ -113,15 +113,17 @@ impl Executor {
             [operand] => i32::from(self.expand_word(operand).is_empty()),
             [op, operand, end] if op == "-t" && end == "]]" => {
                 let w = self.expand_word(operand);
-                if w.parse::<i64>().is_err() {
-                    return 1;
+                if crate::builtins::test::valid_number(&w).is_none() {
+                    self.report_conditional_error(&format!("{}: integer expected", w));
+                    return 2;
                 }
                 i32::from(!self.conditional_file_unary(op, operand))
             }
             [op, operand] if op == "-t" => {
                 let w = self.expand_word(operand);
-                if w.parse::<i64>().is_err() {
-                    return 1;
+                if crate::builtins::test::valid_number(&w).is_none() {
+                    self.report_conditional_error(&format!("{}: integer expected", w));
+                    return 2;
                 }
                 i32::from(!self.conditional_file_unary(op, operand))
             }
@@ -376,6 +378,21 @@ impl Executor {
             "-z" => value.is_empty(),
             _ => false,
         }
+    }
+
+    /// Report a `[[ ]]` syntax error to stderr using the GNU-style prefix
+    /// (`<script>: line N: [[: <message>`), matching `test_syntax_error`
+    /// in test.c as called from `cond_test`.
+    fn report_conditional_error(&self, message: &str) {
+        let prefix = if let (Some(script), Some(line)) = (
+            self.env_vars.get("__RUBASH_SCRIPT_NAME"),
+            self.env_vars.get("__RUBASH_CURRENT_LINE"),
+        ) {
+            format!("{script}: line {line}: [[: ")
+        } else {
+            "rubash: [[: ".to_string()
+        };
+        eprintln!("{prefix}{message}");
     }
 
     pub(super) fn conditional_shell_option_unary(&self, operand: &str) -> bool {

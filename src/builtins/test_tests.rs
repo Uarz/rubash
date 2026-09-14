@@ -202,7 +202,8 @@ fn terminal_unary_operator_checks_standard_fds() {
     assert_eq!(run(&["-t", "1"], false).0, expected_stdout);
     assert_eq!(run(&["-t", "2"], false).0, expected_stderr);
     assert_eq!(run(&["-t", "9999"], false).0, EXECUTION_FAILURE);
-    assert_eq!(run(&["-t", "nope"], false).0, EXECUTION_FAILURE);
+    // GNU 5.3: `test -t nope` is a syntax error (integer expected), exit 2.
+    assert_eq!(run(&["-t", "nope"], false).0, EX_BADUSAGE);
 }
 
 #[test]

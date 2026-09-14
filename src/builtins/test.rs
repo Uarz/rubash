@@ -234,19 +234,29 @@ impl TestParser<'_> {
         Err(format!("{}: binary operator expected", middle))
     }
 
-    /// 5.2 `unary_operator()`: `-t` with a non-numeric operand is FALSE
-    /// (not an error); every other unary needs exactly one operand.
+    /// 5.3 `unary_operator()` (test.c:499-535): `-t` may or may not take an
+    /// argument.  When it does and the argument is not a valid number, GNU
+    /// 5.3 calls `integer_expected_error` (exit 2) — unless the argument is
+    /// `-a`/`-o` AND there are enough args, in which case `-t` defaults to fd
+    /// 1.  Without an argument `-t` tests fd 1.
     fn unary_operator(&mut self) -> Result<bool, String> {
         let op = self.cur();
         if op == "-t" {
             self.advance(false)?;
             if self.pos < self.argc() {
-                if self.cur().parse::<i64>().is_ok() {
+                if let Some(r) = valid_number(self.cur()) {
+                    let _ = r;
                     let operand = self.cur().to_string();
                     self.advance(false)?;
                     return eval_unary("-t", &operand, self.env_vars);
                 }
-                return Ok(false);
+                // test.c:519 — ANDOR fallback: `-t -a ...` / `-t -o ...`
+                // with argc >= 5 defaults to fd 1.
+                if self.argc() >= 5 && is_andor(self.cur()) {
+                    return eval_unary("-t", "1", self.env_vars);
+                }
+                // test.c:522 — non-numeric operand is a syntax error.
+                return Err(format!("{}: integer expected", self.cur()));
             }
             return eval_unary("-t", "1", self.env_vars);
         }
@@ -544,9 +554,41 @@ fn eval_binary(
 }
 
 fn parse_int(value: &str) -> Result<i64, String> {
-    value
-        .parse::<i64>()
-        .map_err(|_| format!("{}: integer expression expected", value))
+    valid_number(value).ok_or_else(|| format!("{}: integer expected", value))
+}
+
+/// GNU `valid_number()` (general.c:248-281): base-10 `strtoimax` with
+/// leading whitespace skipped by strtoimax, trailing whitespace skipped
+/// manually, and the entire input must be consumed.  Rejects overflow,
+/// underflow, and strings with no digits.
+pub(crate) fn valid_number(s: &str) -> Option<i64> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // strtoimax base 10: optional sign, then digits only.
+    let mut chars = trimmed.chars().peekable();
+    match chars.peek() {
+        Some('+') => {
+            chars.next();
+        }
+        Some('-') => {
+            chars.next();
+        }
+        _ => {}
+    }
+    let digits: String = chars.collect();
+    if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    // Rust's i64::from_str_radix matches strtoimax base 10 for valid digit
+    // strings; it rejects overflow the same way.
+    i64::from_str_radix(trimmed, 10).ok()
+}
+
+/// GNU `ANDOR(s)` (test.c:75): true when `s` is `-a` or `-o`.
+fn is_andor(s: &str) -> bool {
+    s == "-a" || s == "-o"
 }
 
 fn modified(path: &str, env_vars: &HashMap<String, String>) -> Option<std::time::SystemTime> {

@@ -164,10 +164,12 @@ impl ConditionalArithParser<'_> {
             "|=" => bash_arith(current | rhs),
             "/=" if rhs != 0 => bash_arith((current as i64).wrapping_div(rhs as i64) as i128),
             "%=" if rhs != 0 => {
+                // GNU expr.c:923-926: INTMAX_MIN % -1 is 0.
                 if current == i128::from(i64::MIN) && rhs == -1 {
-                    return None;
+                    0
+                } else {
+                    current % rhs
                 }
-                current % rhs
             }
             "/=" | "%=" => return None,
             _ => return None,

@@ -1853,13 +1853,13 @@ impl Executor {
                 scalar_names.clone()
             };
             if !scalar_names.is_empty() {
-                let ok = self.assign_read_scalar_names(
+                let assign_status = self.assign_read_scalar_names(
                     &scalar_names,
                     initial_text.as_deref().unwrap_or(""),
                     raw,
                 );
-                if !ok {
-                    return self.finish_read_error(cmd, &stderr, 1);
+                if assign_status != 0 {
+                    return self.finish_read_error(cmd, &stderr, assign_status);
                 }
             }
             return if invalid_name {
@@ -1938,9 +1938,9 @@ impl Executor {
         };
         if !scalar_names.is_empty() {
             if char_limit == Some(0) {
-                let ok = self.assign_read_scalar_names(&scalar_names, "", raw);
-                if !ok {
-                    return self.finish_read_error(cmd, &stderr, 1);
+                let assign_status = self.assign_read_scalar_names(&scalar_names, "", raw);
+                if assign_status != 0 {
+                    return self.finish_read_error(cmd, &stderr, assign_status);
                 }
                 return if invalid_name {
                     self.finish_read_error(cmd, &stderr, 1)
@@ -1963,24 +1963,24 @@ impl Executor {
                 } else {
                     &line
                 };
-                let ok = self.assign_read_scalar_names_with_field_count(
+                let assign_status = self.assign_read_scalar_names_with_field_count(
                     &scalar_names,
                     line,
                     raw,
                     scalar_field_count,
                 );
-                if !ok {
-                    return self.finish_read_error(cmd, &stderr, 1);
+                if assign_status != 0 {
+                    return self.finish_read_error(cmd, &stderr, assign_status);
                 }
                 0
             } else if command_closes_stdin(cmd) || self.fd_table.is_closed(0) {
-                let ok = self.assign_read_scalar_names(
+                let assign_status = self.assign_read_scalar_names(
                     &scalar_names,
                     initial_text.as_deref().unwrap_or(""),
                     raw,
                 );
-                if !ok {
-                    return self.finish_read_error(cmd, &stderr, 1);
+                if assign_status != 0 {
+                    return self.finish_read_error(cmd, &stderr, assign_status);
                 }
                 let _ = writeln!(
                     &mut stderr,
@@ -1993,13 +1993,13 @@ impl Executor {
                     0
                 }
             } else if read_fd.is_some() || command_redirects_stdin(cmd) {
-                let ok = self.assign_read_scalar_names(
+                let assign_status = self.assign_read_scalar_names(
                     &scalar_names,
                     initial_text.as_deref().unwrap_or(""),
                     raw,
                 );
-                if !ok {
-                    return self.finish_read_error(cmd, &stderr, 1);
+                if assign_status != 0 {
+                    return self.finish_read_error(cmd, &stderr, assign_status);
                 }
                 if initial_text.is_none() {
                     1
@@ -2007,13 +2007,13 @@ impl Executor {
                     0
                 }
             } else if self.env_vars.contains_key(FUNCTION_STDIN) {
-                let ok = self.assign_read_scalar_names(
+                let assign_status = self.assign_read_scalar_names(
                     &scalar_names,
                     initial_text.as_deref().unwrap_or(""),
                     raw,
                 );
-                if !ok {
-                    return self.finish_read_error(cmd, &stderr, 1);
+                if assign_status != 0 {
+                    return self.finish_read_error(cmd, &stderr, assign_status);
                 }
                 if initial_text.is_none() {
                     1
@@ -2023,13 +2023,13 @@ impl Executor {
             } else {
                 match read_stdin_until(delimiter, char_limit, exact_char_limit) {
                     Ok((0, _)) => {
-                        let ok = self.assign_read_scalar_names(
+                        let assign_status = self.assign_read_scalar_names(
                             &scalar_names,
                             initial_text.as_deref().unwrap_or(""),
                             raw,
                         );
-                        if !ok {
-                            return self.finish_read_error(cmd, &stderr, 1);
+                        if assign_status != 0 {
+                            return self.finish_read_error(cmd, &stderr, assign_status);
                         }
                         if initial_text.is_none() {
                             1
@@ -2052,9 +2052,9 @@ impl Executor {
                         } else {
                             &line
                         };
-                        let ok = self.assign_read_scalar_names(&scalar_names, line, raw);
-                        if !ok {
-                            return self.finish_read_error(cmd, &stderr, 1);
+                        let assign_status = self.assign_read_scalar_names(&scalar_names, line, raw);
+                        if assign_status != 0 {
+                            return self.finish_read_error(cmd, &stderr, assign_status);
                         }
                         0
                     }

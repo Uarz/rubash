@@ -14,6 +14,11 @@ where
         Some('t') => "\t".to_string(),
         Some('v') => "\x0b".to_string(),
         Some('\\') => "\\".to_string(),
+        // GNU printf.def:1148-1158: \', \", \? in the format string are
+        // recognized as escape sequences with backslash removal (sawc==0).
+        Some('\'') => "'".to_string(),
+        Some('"') => "\"".to_string(),
+        Some('?') => "?".to_string(),
         Some('x') => format_escape_codepoint(read_escape_digits(chars, 16, 2), "\\x"),
         Some('u') => format_unicode_escape(read_escape_digits_raw(chars, 16, 4), "\\u"),
         Some('U') => format_unicode_escape(read_escape_digits_raw(chars, 16, 8), "\\U"),
@@ -101,8 +106,10 @@ pub(super) fn expand_percent_b(value: &str) -> (String, bool) {
                 let value = read_prefixed_escape_digits(&mut chars, octal, 8, 3);
                 push_escape_byte(&mut output, value, "");
             }
+            // GNU printf.def:1148-1158 + default: \', \", \? and all
+            // unrecognized escapes in %b keep the backslash (sawc!=0).
             Some(other) => {
-                // GNU printf treats unrecognized %b escapes as the literal character.
+                output.push('\\');
                 output.push(other);
             }
             None => output.push('\\'),

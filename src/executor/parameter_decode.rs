@@ -296,6 +296,11 @@ pub(in crate::executor) fn decode_parameter_pattern_quotes(pattern: &str) -> Str
                     }
                     push_quoted_pattern_char(&mut output, ch);
                 }
+                // Mark the end of the double-quoted section so the embedded
+                // parameter expander terminates any `$var` name at the
+                // closing quote (e.g. `"$v"a` expands `$v` then appends `a`,
+                // rather than treating `$va` as a single variable name).
+                output.push(crate::lexer::PARAM_NAME_END_MARKER);
             }
             '\\' => {
                 if let Some(ch) = chars.get(index + 1) {

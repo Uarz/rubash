@@ -164,6 +164,17 @@ impl Executor {
         if let Some(value) = self.array_element_parameter_value(&name) {
             return Some(value);
         }
+        // GNU semantics (variables.c array_value): once a variable has been
+        // converted to an array (e.g. via `a[2]=bdef`), `${a}` is equivalent
+        // to `${a[0]}`.  The scalar value in `shell_state.variables` is stale
+        // and must not short-circuit the array lookup.  `unset a[0]` removes
+        // element 0 from the array storage, so `${a}` must return empty.
+        if is_marked_array_var(&self.env_vars, &name) {
+            return self
+                .env_vars
+                .get(&name)
+                .and_then(|value| self.scalar_parameter_value(&name, value));
+        }
         if let Some(crate::shell::Variable {
             value: crate::shell::ShellValue::Scalar(value),
             ..

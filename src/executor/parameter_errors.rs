@@ -307,6 +307,15 @@ impl Executor {
             let base = &name[..name.len() - 3];
             return !base.is_empty() && is_shell_name(base);
         }
+        // GNU subst.c valid_length_expression: `${#arr[index]}` is valid —
+        // it returns the length of element `index` of array `arr`.  Both
+        // integer-indexed (`${#a[5]}`) and associative (`${#aa[key]}`) forms
+        // are accepted.  array.tests:89 `${#a[5]}` -> 11 ("hello world").
+        if let Some((array_name, _key)) = parse_array_subscript(name) {
+            if is_shell_name(array_name) {
+                return true;
+            }
+        }
         // GNU subst.c valid_length_expression: after `#`, a leading name
         // character continues as a name; ANY other first character means the
         // `#` itself is the special parameter `$#` and the remainder must be

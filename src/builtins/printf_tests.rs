@@ -297,7 +297,9 @@ fn percent_b_strips_unknown_escape_backslash_like_bash() {
     let (status, stdout, stderr, _) = run(&["%b", "x\\qy"]);
 
     assert_eq!(status, EXECUTION_SUCCESS);
-    assert_eq!(stdout, "xqy");
+    // GNU printf.def default: unrecognized backslash escapes in %b are
+    // passed through unaltered (backslash kept).
+    assert_eq!(stdout, "x\\qy");
     assert!(stderr.is_empty());
 }
 
