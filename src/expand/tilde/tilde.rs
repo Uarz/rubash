@@ -225,8 +225,19 @@ mod tests {
     /// file is ever committed to the repository — the fixture lives in the
     /// process temp directory and each test removes its own root.
     fn fixture_env(user: &str, home: &str) -> (std::path::PathBuf, HashMap<String, String>) {
-        let root =
-            std::env::temp_dir().join(format!("rubash-tilde-user-{}-{}", user, std::process::id()));
+        // Cargo runs tests as threads of one process, so a per-process name
+        // made concurrent fixtures share (and remove_dir_all) each other's
+        // root — observed as an intermittent tilde_user_resolves_passwd_home
+        // failure. Give every call its own root.
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static FIXTURE_SEQ: AtomicU32 = AtomicU32::new(0);
+        let unique = FIXTURE_SEQ.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "rubash-tilde-user-{}-{}-{}",
+            user,
+            std::process::id(),
+            unique
+        ));
         std::fs::create_dir_all(root.join("etc")).unwrap();
         std::fs::write(
             root.join("etc").join("passwd"),
