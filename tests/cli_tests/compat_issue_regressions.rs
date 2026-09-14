@@ -1811,3 +1811,35 @@ fn command_substitution_preserves_nested_quote_literals() {
     );
     assert_eq!(String::from_utf8_lossy(&output.stderr), "");
 }
+
+#[test]
+fn cmdsub_inline_filters_run_real_commands_for_unmodeled_flags() {
+    // The inline emulations of sort/head/grep/uniq inside $(...) pipelines
+    // silently swallowed flags they do not model: `sort -r` printed
+    // ascending, `head -c` counted lines, `grep -c` treated "-c" as the
+    // pattern and printed nothing, and any uniq flag was ignored. They must
+    // bail out to the real commands; the expectation is GNU bash's
+    // byte-exact output for the same script.
+    //
+    // Shapes are `n=$(...)` rather than `[$(...)]` because a `[` directly
+    // after the opening quote of a double-quoted word triggers a separate
+    // preexisting bug (the 0x11 glob carrier leaks into the output) and
+    // would mask what this test is meant to pin.
+    let output = Command::new(env!("CARGO_BIN_EXE_rubash"))
+        .arg("-c")
+        .arg(concat!(
+            "echo \"n=$(printf 'b\\na\\nc\\n' | sort -r)\"\n",
+            "echo \"n=$(printf 'foo\\nbar\\nfoo\\n' | grep -c foo)\"\n",
+            "echo \"n=$(printf 'a\\na\\nb\\n' | uniq -d)\"\n",
+            "echo \"n=$(printf 'x\\ny\\nz\\n' | head -c 4)\"\n",
+        ))
+        .output()
+        .expect("run cmdsub inline-filter bail-out probe");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "n=c\nb\na\nn=2\nn=a\nn=x\ny\n"
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+}
