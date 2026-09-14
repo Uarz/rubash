@@ -100,9 +100,19 @@ pub(crate) fn decode_ansi_c_quoted(value: &str) -> String {
                 );
             }
             Some('c') => {
-                // Control character: backslash c X
+                // GNU chartypes.h TOCTRL: \c? → 0x7f (DEL), otherwise
+                // TOUPPER(c) & 0x1f.  An omitted operand (end of string)
+                // passes \c through literally (strtrans.c ansic_quote).
                 if let Some(c) = chars.next() {
-                    output.push((c as u32 & 0x1f) as u8 as char);
+                    let value = if c == '?' {
+                        0x7f
+                    } else {
+                        (c.to_ascii_uppercase() as u32) & 0x1f
+                    };
+                    push_ansi_c_byte(&mut output, value);
+                } else {
+                    output.push('\\');
+                    output.push('c');
                 }
             }
             None => output.push('\\'),

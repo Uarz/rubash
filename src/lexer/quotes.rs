@@ -52,8 +52,17 @@ pub(crate) fn remove_shell_quotes_with_posix(raw: &str, posix: bool) -> String {
     // True while the emitted tail is an unbraced `$name` parameter; a quote
     // boundary at that point must carry PARAM_NAME_END_MARKER (see above).
     let mut pending_name = false;
+    // True once any content outside single quotes has been seen.  A `"`
+    // inside single quotes must be tagged with the data-double-quote marker
+    // (\x18) so the expansion walker does not strip it — but only when the
+    // word is NOT fully single-quoted (the fast path for fully single-quoted
+    // words only restores \x1f, so tagging there would leak the marker).
+    let mut saw_outside_single = false;
 
     while let Some(ch) = chars.next() {
+        if ch != '\'' {
+            saw_outside_single = true;
+        }
         match ch {
             '[' => {
                 subscript_depth += 1;
@@ -119,6 +128,14 @@ pub(crate) fn remove_shell_quotes_with_posix(raw: &str, posix: bool) -> String {
                     out.push(PARAM_NAME_END_MARKER);
                 }
                 pending_name = false;
+                // When the word has content outside single quotes, a `"`
+                // inside single quotes must carry the data-double-quote
+                // marker (\x18) so the expansion walker treats it as data
+                // instead of a quote delimiter (nquote.tests line 27:
+                // `$"hello"', $"world"'` → `hello, $"world"`).  For fully
+                // single-quoted words the fast path only restores \x1f,
+                // so raw `"` is kept there.
+                let protect_dquote = saw_outside_single;
                 for quoted in chars.by_ref() {
                     if quoted == '\'' {
                         break;
@@ -127,6 +144,8 @@ pub(crate) fn remove_shell_quotes_with_posix(raw: &str, posix: bool) -> String {
                         // Preserve the existing protected-dollar contract used by
                         // downstream expansion, but do not protect literal globs.
                         out.push('\x1f');
+                    } else if protect_dquote && quoted == '"' {
+                        out.push('\x18');
                     } else {
                         out.push(quoted);
                     }
@@ -379,9 +398,22 @@ fn remove_double_quoted_into(
             }
             _ => {
                 if quoted == '$' {
-                    pending_name = chars
+                    if chars
                         .peek()
-                        .is_some_and(|next| is_lexer_shell_name_start(*next));
+                        .is_some_and(|next| is_lexer_shell_name_start(*next))
+                    {
+                        pending_name = true;
+                    } else {
+                        // GNU parse.y skip_double_quoted: `$` not followed
+                        // by a valid expansion start is a literal dollar
+                        // (e.g. `"hello, $"world""` → `hello, $world`).
+                        // Mark it as protected so the expansion walker
+                        // does not re-interpret the following text as a
+                        // variable reference.
+                        pending_name = false;
+                        out.push('\x1f');
+                        continue;
+                    }
                 } else if !(pending_name && is_lexer_shell_name_char(quoted)) {
                     pending_name = false;
                 }
