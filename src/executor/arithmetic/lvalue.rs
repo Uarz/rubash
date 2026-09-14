@@ -9,6 +9,82 @@ use crate::executor::{
 use std::collections::HashSet;
 
 impl ConditionalArithParser<'_> {
+    /// Parse an lvalue for an assignment target. When the lvalue has an array
+    /// subscript, the subscript expression text is captured raw (not evaluated)
+    /// so it can be re-evaluated after the RHS, matching GNU expr.c:1395-1401.
+    pub(super) fn parse_lvalue_for_assignment(&mut self) -> Option<ArithLValue> {
+        self.skip_ws();
+        let start = self.pos;
+        let first = self.peek()? as char;
+        if !is_shell_name_start(first) {
+            return None;
+        }
+        self.pos += 1;
+        while self.peek().is_some_and(|ch| is_shell_name_char(ch as char)) {
+            self.pos += 1;
+        }
+        let name = std::str::from_utf8(&self.input[start..self.pos])
+            .ok()?
+            .to_string();
+
+        self.skip_ws();
+        if !self.consume("[") {
+            let name = self.resolved_lvalue_name(&name);
+            return Some(ArithLValue::Scalar(name));
+        }
+
+        let resolved_name = self.resolved_lvalue_name(&name);
+        if is_marked_var(self.env_vars, ASSOC_VARS, &resolved_name) {
+            // Associative arrays use the key verbatim; no deferred evaluation.
+            let key = self.parse_assoc_subscript()?;
+            return Some(ArithLValue::Assoc {
+                name: resolved_name,
+                key,
+            });
+        }
+
+        // Capture the raw subscript text for deferred evaluation.
+        let subscript = self.collect_raw_subscript()?;
+        Some(ArithLValue::IndexedRaw {
+            name: resolved_name,
+            subscript,
+        })
+    }
+
+    /// Collect the raw text between `[` and `]` without evaluating it.
+    fn collect_raw_subscript(&mut self) -> Option<String> {
+        self.skip_ws();
+        let start = self.pos;
+        let mut depth = 1usize;
+        let mut single = false;
+        let mut double = false;
+        while self.pos < self.input.len() {
+            match self.input[self.pos] {
+                b'\\' => {
+                    self.pos += 1;
+                }
+                b'\'' if !double => single = !single,
+                b'"' if !single => double = !double,
+                b'[' if !single && !double => {
+                    depth += 1;
+                }
+                b']' if !single && !double => {
+                    depth -= 1;
+                    if depth == 0 {
+                        let text = std::str::from_utf8(&self.input[start..self.pos])
+                            .ok()?
+                            .to_string();
+                        self.pos += 1;
+                        return Some(text);
+                    }
+                }
+                _ => {}
+            }
+            self.pos += 1;
+        }
+        None
+    }
+
     pub(super) fn parse_lvalue(&mut self) -> Option<ArithLValue> {
         self.skip_ws();
         let start = self.pos;

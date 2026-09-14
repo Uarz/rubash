@@ -51,7 +51,8 @@ impl Executor {
                 label
             );
         } else if let Some(message) = crate::executor::arithmetic::arithmetic_command_error_message(
-            expression, trailing_space,
+            expression,
+            trailing_space,
         ) {
             eprintln!("{}{}: {message}", self.diagnostic_prefix(), label);
         }
@@ -122,19 +123,31 @@ impl Executor {
             Some(0) => 1,
             Some(_) => 0,
             None => {
-                // Raw-captured `(( ))` commands report division by 0 with
-                // GNU's exact lasttp remainder; every other diagnostic
-                // keeps the established normalized-expression path.
-                let raw_division = raw_expression
+                // Raw-captured `(( ))` commands report division by 0 and
+                // trailing-input errors with GNU's exact lasttp remainder
+                // (trailing blank preserved); every other diagnostic keeps
+                // the established normalized-expression path.
+                let raw_display = raw_expression
                     .map(|raw| raw.trim_start_matches([' ', '\t']))
-                    .and_then(|display| {
-                        arithmetic_division_by_zero_token(display).map(|token| (display, token))
-                    });
+                    .unwrap_or(expression);
+                let raw_division =
+                    arithmetic_division_by_zero_token(raw_display).map(|token| (raw_display, token.to_string()));
                 match raw_division {
                     Some((display, token)) => {
                         self.report_arithmetic_division_by_zero_raw(&display, &token)
                     }
-                    None => self.report_arithmetic_error(expression),
+                    None => {
+                        // GNU expr.c:484-485: trailing input after a
+                        // successful sub-expression parse. Use the raw
+                        // display so the trailing blank survives.
+                        if crate::executor::arithmetic::trailing_input_token(raw_display)
+                            .is_some()
+                        {
+                            self.report_arithmetic_error_raw_display(raw_display);
+                        } else {
+                            self.report_arithmetic_error(expression);
+                        }
+                    }
                 }
                 if self.arithmetic_nounset_error.get() {
                     127

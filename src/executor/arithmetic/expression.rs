@@ -21,7 +21,12 @@ impl ConditionalArithParser<'_> {
         let start = self.pos;
         if self.assignment_lvalue_is_next() {
             self.pos = start;
-            let lvalue = self.parse_lvalue()?;
+            // GNU expr.c:1395-1401: when the next token is `=`, the lvalue
+            // subscript is NOT pre-evaluated. The raw token string is saved and
+            // the subscript is re-evaluated at bind time (after the RHS),
+            // so side effects in the RHS are visible to the subscript
+            // (e.g. `a[n]=++n` stores at a[1], not a[0]).
+            let lvalue = self.parse_lvalue_for_assignment()?;
             self.skip_ws();
             if let Some(op) = self.consume_assignment_operator() {
                 let rhs = self.parse_assignment()?;
