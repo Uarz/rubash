@@ -742,6 +742,19 @@ fn decode_double_quotes_in_quoted_parameter_word(word: &str) -> String {
                         _ => output.push(escaped),
                     }
                 }
+                // GNU expand_word_internal with Q_DOUBLE_QUOTES: backslash
+                // before a char NOT in CBSDQUOTE ($ ` " \ newline) is removed
+                // — only the char survives (rhs-exp.tests: `\p` → `p`,
+                // `\'` → `'`).
+                '\\' => {
+                    if let Some(&next) = chars.get(index + 1) {
+                        index += 2;
+                        output.push(next);
+                    } else {
+                        output.push('\\');
+                        index += 1;
+                    }
+                }
                 ch => {
                     output.push(ch);
                     index += 1;
