@@ -29,6 +29,60 @@ pub(in crate::executor) fn split_shell_words_with_quote_info(source: &str) -> Ve
             continue;
         }
 
+        // GNU parse.y/quotes.rs quote removal: backslash handling depends on
+        // the surrounding quote state. Outside quotes a backslash escapes any
+        // character and is removed. Inside double quotes the backslash only
+        // retains its special meaning before \, $, `, ", and newline; before
+        // other characters it is preserved. Inside single quotes the backslash
+        // is literal. Without this, command substitution bodies that bypass
+        // the lexer's quote removal (e.g. `$(echo \a)`) keep the backslash
+        // where GNU removes it (more-exp.tests:297 `recho \a` -> a).
+        if ch == '\\' {
+            match quote {
+                None => {
+                    let Some(escaped) = chars.next() else {
+                        current.push(ch);
+                        continue;
+                    };
+                    match escaped {
+                        '\\' => current.push('\x14'),
+                        '$' => current.push('\x1f'),
+                        '`' => current.push('\x1a'),
+                        '\'' => current.push('\x17'),
+                        '"' => current.push('\x18'),
+                        '\n' => {}
+                        _ => current.push(escaped),
+                    }
+                    continue;
+                }
+                Some('"') => {
+                    match chars.peek().copied() {
+                        Some(escaped @ ('\\' | '"' | '$' | '`' | '\n')) => {
+                            chars.next();
+                            match escaped {
+                                '\\' => current.push('\x14'),
+                                '"' => current.push('\x18'),
+                                '$' => current.push('\x1f'),
+                                '`' => current.push('\x1a'),
+                                '\n' => {}
+                                _ => unreachable!(),
+                            }
+                            continue;
+                        }
+                        _ => {
+                            current.push(ch);
+                            continue;
+                        }
+                    }
+                }
+                _ => {
+                    // Inside single quotes: fall through to the match block so
+                    // push_single_quoted_shell_word_char converts \ to \x15,
+                    // preserving the literal through unescape_remaining_shell_escapes.
+                }
+            }
+        }
+
         match (ch, quote) {
             ('$', None) if chars.peek().copied() == Some('(') => {
                 copy_dollar_paren_word(&mut current, &mut chars);
