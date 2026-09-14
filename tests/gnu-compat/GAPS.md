@@ -99,10 +99,25 @@ arith 措辞、heredoc EOF 警告行号、trap 参数校验、invalid identifier
 - GNU 源码：`expr.c:485,538,552,917,1120,1507`。
 
 ### G12 error prolog 与行号
-- 套件：`tests/history.tests`、`tests/vredir.tests`、`tests/histexp.tests`、`tests/comsub2.tests`
+- 套件：`tests/history.tests`、`tests/vredir.tests`、`tests/histexp.tests`、
+  `tests/comsub2.tests`、`tests/printf.tests`、`tests/errors.tests`
 - 现象：① 内建错误缺 `./script.tests: line N:` prolog（`history: -x: invalid option`）；
-  ② 反向多打（vredir6 `redirection error` 前 rubash 多了 line 13）；
+  ② 反向多打（vredir6 `redirection error` 前 rubash 多了 line 13——GNU 的
+  redirection error prolog 不带行号，redir.c 走独立路径）；
   ③ 行号 off-by-one（comsub2 line 74 vs 75）。
+- 已修（2026-09-14）：
+  - trap 全部诊断走 error_prolog（`e372aa7b`，G13 覆盖）；
+  - printf 7 处硬编码 `rubash: printf:` 前缀改走 diagnostic_prefix，
+    `-v` identifier 消息反引号收尾改撇号（usage 行不带 prolog，
+    与 printf.right 基线一致）；
+  - unset（-x / -fv 同用）与 exec（invalid option / -a 缺参 / not found /
+    spawn 失败）同样接入 prolog（`23f43397`）。
+  - select 语义修正：invalid identifier 报错后中止 select、不再打印菜单
+    （GNU errors.tests line 50-59 行为）；select 变量名保留 raw 词素
+    （`select f\1` 报 `f\1'，此前被去转义成合法 f1 直接执行）。
+- 剩余：history/vredir/histexp/comsub2 侧 prolog 与行号问题；
+  errors.tests 中 declare readonly-function 族（line 76/85）与
+  `unset: cannot simultaneously` 之外的 declare 选项差异。
 - GNU 源码：`error.c:61-226`（error_prolog，print_lineno 语义）。
 
 ### G13 trap -p/-P 参数校验
