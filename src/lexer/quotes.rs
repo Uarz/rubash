@@ -350,6 +350,11 @@ fn remove_double_quoted_into(
                             '$' => out.push('\x1f'),
                             '`' => out.push('\x1a'),
                             '\\' => out.push('\x14'),
+                            // `\"` inside double quotes must survive as data:
+                            // the expansion walker treats bare `"` as a quote
+                            // delimiter, so emit the data-double-quote marker
+                            // (\x18) that the walker restores to `"`.
+                            '"' => out.push('\x18'),
                             _ => out.push(escaped),
                         }
                     }
@@ -653,5 +658,5 @@ mod probe_tests {
     #[test]
     fn probe_escaped_quote_value() {
         let out = super::remove_shell_quotes("a[\\\" \\\"]=15");
-        }
+    }
 }
