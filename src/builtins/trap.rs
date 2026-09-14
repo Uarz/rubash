@@ -91,6 +91,21 @@ pub fn execute(args: &[String]) -> io::Result<i32> {
     execute_with_io(args, &mut env_vars, &mut stdout, &mut stderr)
 }
 
+/// Build the shell diagnostic prefix (`<script>: line N: `) from the shell
+/// environment, falling back to `rubash: ` without script context. GNU
+/// trap.def errors go through builtin_error -> error_prolog, which prefixes
+/// `./script: line N:` when running a script file (trap.tests line 118
+/// baseline: `./trap.tests: line 118: trap: cannot specify both -p and -P`).
+fn diagnostic_prefix(env_vars: &HashMap<String, String>) -> String {
+    if let (Some(script), Some(line)) = (
+        env_vars.get("__RUBASH_SCRIPT_NAME"),
+        env_vars.get("__RUBASH_CURRENT_LINE"),
+    ) {
+        return format!("{script}: line {line}: ");
+    }
+    "rubash: ".to_string()
+}
+
 pub fn execute_with_io<W, E>(
     args: &[String],
     env_vars: &mut HashMap<String, String>,
@@ -126,7 +141,8 @@ where
                 'p' => print_trap_commands = true,
                 'P' => print_actions = true,
                 _ => {
-                    writeln!(stderr, "rubash: trap: {arg}: invalid option")?;
+                    let prefix = diagnostic_prefix(env_vars);
+                    writeln!(stderr, "{prefix}trap: {arg}: invalid option")?;
                     print_usage(stderr)?;
                     return Ok(EX_USAGE);
                 }
@@ -141,17 +157,19 @@ where
     }
 
     if print_trap_commands && print_actions {
-        writeln!(stderr, "rubash: trap: cannot specify both -p and -P")?;
+        let prefix = diagnostic_prefix(env_vars);
+        writeln!(stderr, "{prefix}trap: cannot specify both -p and -P")?;
         return Ok(EX_USAGE);
     }
 
     if print_actions && index >= args.len() {
-        writeln!(stderr, "rubash: trap: -P requires at least one signal name")?;
+        let prefix = diagnostic_prefix(env_vars);
+        writeln!(stderr, "{prefix}trap: -P requires at least one signal name")?;
         return Ok(EX_USAGE);
     }
 
     if index >= args.len() || print_trap_commands || print_actions {
-        let signals = normalized_signals(&args[index..], stderr)?;
+        let signals = normalized_signals(&args[index..], env_vars, stderr)?;
         if signals.invalid {
             return Ok(1);
         }
@@ -190,7 +208,7 @@ where
         return Ok(0);
     }
 
-    let signals = normalized_signals(&args[index..], stderr)?;
+    let signals = normalized_signals(&args[index..], env_vars, stderr)?;
     if action == "-" || action == "0" {
         for signal in signals.signals {
             remove_trap(env_vars, &signal);
@@ -229,10 +247,15 @@ struct NormalizedSignals {
     invalid: bool,
 }
 
-fn normalized_signals<E>(args: &[String], stderr: &mut E) -> io::Result<NormalizedSignals>
+fn normalized_signals<E>(
+    args: &[String],
+    env_vars: &HashMap<String, String>,
+    stderr: &mut E,
+) -> io::Result<NormalizedSignals>
 where
     E: Write,
 {
+    let prefix = diagnostic_prefix(env_vars);
     let mut signals = Vec::new();
     let mut invalid = false;
     for arg in args {
@@ -240,7 +263,7 @@ where
             Some(signal) => signals.push(signal.to_string()),
             None => {
                 invalid = true;
-                writeln!(stderr, "rubash: trap: {arg}: invalid signal specification")?;
+                writeln!(stderr, "{prefix}trap: {arg}: invalid signal specification")?;
             }
         }
     }
