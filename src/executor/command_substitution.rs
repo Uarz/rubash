@@ -223,6 +223,23 @@ impl Executor {
             }
             return String::new();
         }
+
+        // split_shell_words drops the quote delimiters themselves, so a body
+        // whose quotes must survive into the output reaches the word-based
+        // shortcuts corrupted: `$(echo '{"a":1}')` arrives at echo as the
+        // bare word `{a:1}` and `\"` inside double quotes degrades to a
+        // literal backslash. GNU subst.c always parses the body and lets the
+        // real lexer own quote state, so route bodies with semantically
+        // visible quotes through the real parser/executor too. Top-level
+        // quote delimiters only group words — stripping them matches bash —
+        // so those bodies keep the fast paths that the heredoc old-style
+        // backtick literal and the IFS `read` splitting depend on.
+        if command_substitution_quotes_are_semantic(source) {
+            if let Some(output) = self.command_list_substitution_output(source, context) {
+                return output;
+            }
+            return String::new();
+        }
         let word_source = strip_command_substitution_comments(source);
         let word_parts = split_shell_words_with_quote_info(&word_source);
         let words: Vec<String> = word_parts.iter().map(|(word, _)| word.clone()).collect();
@@ -753,6 +770,45 @@ fn command_substitution_words_have_redirects(words: &[String]) -> bool {
     })
 }
 
+/// True when the substitution body carries a quote character whose literal
+/// value must survive into the substitution output: a quote nested inside
+/// the other quote type (`echo "'a'"`, `echo 'say "hi"'`) or a backslash
+/// escape inside double quotes (`echo "a\"b"`). Top-level quote delimiters
+/// merely group words — the word-splitting shortcuts strip them with
+/// output identical to bash — and must keep the fast paths (the heredoc
+/// old-style backtick literal and the IFS `read` splitting regress if
+/// those bodies detour through the full executor).
+fn command_substitution_quotes_are_semantic(source: &str) -> bool {
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    for ch in source.chars() {
+        if escaped {
+            escaped = false;
+            if ch == '\'' || ch == '"' {
+                // `\'` / `\"` produce a literal quote character
+                return true;
+            }
+            continue;
+        }
+        match ch {
+            '\\' if !in_single => {
+                if in_double {
+                    // a backslash inside double quotes is escape-special
+                    // (`\"`, `\\`, `\$`) and must reach the real lexer
+                    return true;
+                }
+                escaped = true;
+            }
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            '\'' | '"' => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
 fn command_substitution_needs_command_list(source: &str, words: &[String]) -> bool {
     let starts_compound = matches!(
         words.first().map(String::as_str),
@@ -766,15 +822,25 @@ fn command_substitution_needs_command_list(source: &str, words: &[String]) -> bo
 
 fn command_substitution_has_unclosed_compound(source: &str) -> bool {
     let words = split_shell_words(source);
-    match words.first().map(String::as_str) {
+    // split_shell_words keeps shell punctuation attached to its word, so a
+    // terminator followed by `;` (`done; echo x`, `fi; echo y`, `esac;;`)
+    // arrives as a single word like "done;". Strip the trailing separators
+    // before comparing, otherwise a closed compound is misread as unclosed
+    // and the whole substitution is rejected without reaching the real
+    // parser.
+    let bare: Vec<String> = words
+        .iter()
+        .map(|word| word.trim_end_matches(';').to_string())
+        .collect();
+    match bare.first().map(String::as_str) {
         Some("if") => {
-            words.iter().any(|word| word == "then") && !words.iter().any(|word| word == "fi")
+            bare.iter().any(|word| word == "then") && !bare.iter().any(|word| word == "fi")
         }
         Some("for" | "while" | "until" | "select") => {
-            words.iter().any(|word| word == "do") && !words.iter().any(|word| word == "done")
+            bare.iter().any(|word| word == "do") && !bare.iter().any(|word| word == "done")
         }
         Some("case") => {
-            words.iter().any(|word| word == "in") && !words.iter().any(|word| word == "esac")
+            bare.iter().any(|word| word == "in") && !bare.iter().any(|word| word == "esac")
         }
         _ => false,
     }
@@ -848,5 +914,42 @@ fn command_substitution_result_status(result: Result<(), ExecuteError>, exit_cod
         Err(ExecuteError::Return(status)) => status,
         Err(ExecuteError::ExitCode(status)) | Err(ExecuteError::ExpansionFailure(status)) => status,
         Err(_) => 1,
+    }
+}
+
+#[cfg(test)]
+mod unclosed_compound_tests {
+    use super::command_substitution_has_unclosed_compound;
+
+    #[test]
+    fn closed_loop_followed_by_semicolon_command_is_not_unclosed() {
+        // regression: `done; echo x` made the precheck report an unclosed
+        // compound ("done;" != "done") and reject the substitution without
+        // reaching the real parser
+        assert!(!command_substitution_has_unclosed_compound(
+            "for i in 1 2 3; do echo $i; done; echo x"
+        ));
+        assert!(!command_substitution_has_unclosed_compound(
+            "if true; then echo a; fi; echo ''"
+        ));
+        assert!(!command_substitution_has_unclosed_compound(
+            "while false; do :; done; echo ''"
+        ));
+        assert!(!command_substitution_has_unclosed_compound(
+            "case x in a) echo y;; esac; echo z"
+        ));
+    }
+
+    #[test]
+    fn genuinely_unclosed_compound_is_still_detected() {
+        assert!(command_substitution_has_unclosed_compound(
+            "for i in 1 2 3; do echo $i"
+        ));
+        assert!(command_substitution_has_unclosed_compound(
+            "if true; then echo a"
+        ));
+        assert!(command_substitution_has_unclosed_compound(
+            "case x in a) echo y;;"
+        ));
     }
 }

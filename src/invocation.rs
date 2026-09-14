@@ -36,16 +36,26 @@ impl ShellInvocation {
     pub fn parse(args: &[String]) -> Result<Self, String> {
         let mut expanded = Vec::with_capacity(args.len());
         for arg in args {
-            if let Some(flags) = arg.strip_prefix('-') {
-                let flags = flags.strip_prefix('-').unwrap_or(flags);
-                if flags.len() > 1
-                    && !flags.contains('o')
-                    && !flags.contains('O')
-                    && flags.chars().all(|f| {
-                        f == 'c' || f == 's' || f == 'i' || f == 'D' || cli_flag_name(f).is_some()
+            // Combined short flags ("-ne", "-lc", "-ilc") are a single-dash
+            // concept; long options ("--rcfile") must never be exploded even
+            // when every letter happens to be a whitelisted flag char.
+            if let Some(short_flags) = arg
+                .strip_prefix('-')
+                .filter(|rest| !rest.starts_with('-'))
+            {
+                if short_flags.len() > 1
+                    && !short_flags.contains('o')
+                    && !short_flags.contains('O')
+                    && short_flags.chars().all(|f| {
+                        f == 'c'
+                            || f == 's'
+                            || f == 'i'
+                            || f == 'l'
+                            || f == 'D'
+                            || cli_flag_name(f).is_some()
                     })
                 {
-                    for flag in flags.chars() {
+                    for flag in short_flags.chars() {
                         expanded.push(if flag == 'c' {
                             "-c".to_string()
                         } else {
@@ -304,6 +314,20 @@ mod tests {
         assert!(parsed.shell_flags.contains(&("noexec".into(), true)));
         assert!(parsed.shell_flags.contains(&("errexit".into(), true)));
         assert_eq!(parsed.positional_params, vec!["x"]);
+    }
+
+    #[test]
+    fn parses_combined_login_command_flags() {
+        // Harnesses (ZCode snapshot probe, tmux default-shell) spawn
+        // `<shell> -lc '<script>'`; GNU bash accepts the combined form.
+        let args = vec!["-lc".into(), "env -0".into()];
+        let parsed = ShellInvocation::parse(&args).unwrap();
+        assert_eq!(parsed.command.as_deref(), Some("env -0"));
+        assert!(parsed.login);
+
+        let interactive = ShellInvocation::parse(&["-ilc".into(), "env -0".into()]).unwrap();
+        assert_eq!(interactive.command.as_deref(), Some("env -0"));
+        assert!(interactive.login && interactive.interactive);
     }
 
     #[test]
