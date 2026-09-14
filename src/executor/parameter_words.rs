@@ -457,7 +457,13 @@ impl Executor {
     /// alternate is fully quote-removed (`a\ b` -> `a b`, posixexp2 case 35).
     /// Inside double quotes `\` only escapes $, `, ", \, and newline; any
     /// other `\X` is literal data and survives into the assigned value
-    /// (`"${v=a\ b}"` assigns `a\ b`, posixexp2 case 36).
+    /// (`"${v=a\ b}"` assigns `a\ b`, posixexp2 case 36). Inside double
+    /// quotes single quotes are data, not delimiters, so `$var` inside
+    /// `'...'` is expanded (`"${fox='$foo'}"` assigns `'bar'`,
+    /// more-exp.tests:112). Double quotes in the alternate are removed
+    /// by `decode_double_quotes_in_quoted_parameter_word` (matching the
+    /// `+`/`-` operator path), so `"${und="foo"}"` assigns `foo`
+    /// (new-exp.tests:33).
     fn expand_assignment_alternate_mut(&mut self, value: &str, double_quoted: bool) -> String {
         if !double_quoted {
             return self.expand_parameter_word_mut(value);
@@ -483,8 +489,19 @@ impl Executor {
             protected.push(chars[index]);
             index += 1;
         }
-        self.expand_parameter_word_mut(&protected)
-            .replace(PROTECTED_LITERAL_BACKSLASH, "\\")
+        // Remove double quotes from the alternate (matching the `+`/`-`
+        // operator path which calls decode_double_quotes_in_quoted_parameter_word).
+        let decoded = decode_double_quotes_in_quoted_parameter_word(&protected);
+        // Use DoubleQuoted context so single quotes are treated as data
+        // (not quote delimiters), matching GNU's expand_string_for_rhs
+        // behavior inside double quotes. Use unescape_parameter_operator_result
+        // (not decode_parameter_word_quotes) so single quotes survive as data.
+        let expanded = self.expand_embedded_parameters_mut_with_context(
+            &decoded,
+            SubstitutionQuoteContext::DoubleQuoted,
+        );
+        let unescaped = unescape_parameter_operator_result(&expanded, SubstitutionQuoteContext::DoubleQuoted);
+        unescaped.replace(PROTECTED_LITERAL_BACKSLASH, "\\")
     }
 
     pub(in crate::executor) fn apply_parameter_assignment_expansions_in_word(
@@ -705,11 +722,25 @@ fn decode_double_quotes_in_quoted_parameter_word(word: &str) -> String {
                     break;
                 }
                 '\\' if matches!(chars.get(index + 1), Some('\\' | '"' | '$' | '`' | '\n')) => {
-                    index += 1;
-                    if index < chars.len() && chars[index] != '\n' {
-                        output.push(chars[index]);
+                    let escaped = chars[index + 1];
+                    index += 2;
+                    match escaped {
+                        '\n' => {}
+                        // Keep `\\` intact so the expansion walker can
+                        // consume it as a literal backslash and let the
+                        // following character (e.g. `$var`) expand normally
+                        // (rhs-exp.tests: `"\\$selvecs"` → `\&m68kcoff_vec`).
+                        '\\' => {
+                            output.push('\\');
+                            output.push('\\');
+                        }
+                        // Protect `$` and `` ` `` from re-expansion: inside
+                        // double quotes `\$` and `\`` are literal data that
+                        // must not trigger parameter/command substitution.
+                        '$' => output.push('\x1f'),
+                        '`' => output.push('\x1a'),
+                        _ => output.push(escaped),
                     }
-                    index += 1;
                 }
                 ch => {
                     output.push(ch);
