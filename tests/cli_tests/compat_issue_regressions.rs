@@ -1679,7 +1679,7 @@ fn arithmetic_empty_assignment_rhs_reports_operand_expected() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("j=: syntax error: operand expected (error token is \"= \")"),
+        stderr.contains("j=: arithmetic syntax error: operand expected (error token is \"=\")"),
         "stderr: {stderr}"
     );
 }
@@ -1697,7 +1697,7 @@ fn arithmetic_for_empty_assignment_init_reports_error() {
     assert_eq!(String::from_utf8_lossy(&output.stdout), "after:1\n");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("((: j=: syntax error: operand expected (error token is \"= \")"),
+        stderr.contains("((: j=: arithmetic syntax error: operand expected (error token is \"=\")"),
         "stderr: {stderr}"
     );
 }
@@ -1714,7 +1714,7 @@ fn arithmetic_trailing_increment_after_number_token_is_single_plus() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("7++: syntax error: operand expected (error token is \"+ \")"),
+        stderr.contains("7++: arithmetic syntax error: operand expected (error token is \"+\")"),
         "stderr: {stderr}"
     );
 }
@@ -1727,27 +1727,27 @@ fn arithmetic_trailing_operator_tokens_match_gnu() {
     for (expr, expected) in [
         (
             "3**",
-            "3**: syntax error: operand expected (error token is \"** \")",
+            "3**: arithmetic syntax error: operand expected (error token is \"**\")",
         ),
         (
             "7<=",
-            "7<=: syntax error: operand expected (error token is \"<= \")",
+            "7<=: arithmetic syntax error: operand expected (error token is \"<=\")",
         ),
         (
             "7&&",
-            "7&&: syntax error: operand expected (error token is \"&& \")",
+            "7&&: arithmetic syntax error: operand expected (error token is \"&&\")",
         ),
         (
             "j==",
-            "j==: syntax error: operand expected (error token is \"== \")",
+            "j==: arithmetic syntax error: operand expected (error token is \"==\")",
         ),
         (
             "j+=",
-            "j+=: syntax error: operand expected (error token is \"+= \")",
+            "j+=: arithmetic syntax error: operand expected (error token is \"+=\")",
         ),
         (
             "7+=",
-            "7+=: attempted assignment to non-variable (error token is \"+= \")",
+            "7+=: attempted assignment to non-variable (error token is \"+=\")",
         ),
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_rubash"))

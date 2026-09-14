@@ -843,9 +843,32 @@ fn normalize_arithmetic_quotes(input: &str) -> String {
 /// Produces a Bash-style error message for an arithmetic expansion that
 /// failed to evaluate (`$(( 1.5 ))`, `$(( 2 ** -1 ))`, division by zero, ...).
 /// Rubash used to silently drop these; Bash reports them on stderr with rc=1.
+///
+/// GNU bash 5.3.0 uses the `arithmetic syntax error` prefix in both expansion
+/// (`$(( ))`) and command (`(( ))`, `let`, `for ((;;))`, `[[ ]]`) contexts
+/// (verified: `$(( 4+ ))` → `4+ : arithmetic syntax error: operand expected`).
+/// The caller adds the context-specific prefix (`((:` / `let:`) separately.
 pub(in crate::executor) fn arithmetic_error_message(
     expression: &str,
     trailing_space: bool,
+) -> Option<String> {
+    arithmetic_error_message_ctx(expression, trailing_space, true)
+}
+
+/// Command-context variant: `(( ))` / `let` / `[[ ]]` diagnostics carry an
+/// `arithmetic` prefix (verified bash 5.3.0: `(( 7++ ))` → `((: 7++ :
+/// arithmetic syntax error: operand expected (error token is "+ ")`).
+pub(in crate::executor) fn arithmetic_command_error_message(
+    expression: &str,
+    trailing_space: bool,
+) -> Option<String> {
+    arithmetic_error_message_ctx(expression, trailing_space, true)
+}
+
+fn arithmetic_error_message_ctx(
+    expression: &str,
+    trailing_space: bool,
+    command_context: bool,
 ) -> Option<String> {
     // GNU expr.c evalerror skips the expression's leading whitespace at
     // display time (expr.c:1528: `for (t = expression; whitespace (*t); t++)`)
@@ -854,6 +877,16 @@ pub(in crate::executor) fn arithmetic_error_message(
     // text, never the raw expansion.
     let expression = expression.trim_start();
     let token_space = if trailing_space { " " } else { "" };
+    let operand_expected = if command_context {
+        "arithmetic syntax error: operand expected"
+    } else {
+        "syntax error: operand expected"
+    };
+    let invalid_operator = if command_context {
+        "arithmetic syntax error: invalid arithmetic operator"
+    } else {
+        "syntax error: invalid arithmetic operator"
+    };
     if let Some(token) = arithmetic_division_by_zero_token(expression) {
         return Some(format!(
             "{expression}: division by 0 (error token is \"{token}\")"
@@ -889,7 +922,7 @@ pub(in crate::executor) fn arithmetic_error_message(
     // An operator missing its right-hand operand (`j=`, `7++`, `3**`,
     // `j+=`, `7<=`, ...).  GNU expr.c reports these from the recursive
     // descent with the error token taken from lasttp.
-    if let Some(message) = trailing_operator_error(expression, trailing_space) {
+    if let Some(message) = trailing_operator_error(expression, trailing_space, command_context) {
         return Some(message);
     }
 
@@ -918,7 +951,7 @@ pub(in crate::executor) fn arithmetic_error_message(
             )
         };
         return Some(format!(
-            "{display_expression}: syntax error: operand expected (error token is \"{token}\")"
+            "{display_expression}: {operand_expected} (error token is \"{token}\")"
         ));
     }
     let assignment_lvalue_is_digit = trimmed.split_once('=').is_some_and(|(left, _)| {
@@ -938,7 +971,7 @@ pub(in crate::executor) fn arithmetic_error_message(
         let message = if trimmed.contains('=') {
             "attempted assignment to non-variable"
         } else {
-            "syntax error: operand expected"
+            operand_expected
         };
         let token_start = if trimmed.contains('=') {
             expression.find('=').unwrap_or(0)
@@ -955,14 +988,14 @@ pub(in crate::executor) fn arithmetic_error_message(
 
     if empty_quoted_operand_has_operator(expression) {
         return Some(format!(
-            "{expression}: syntax error: operand expected (error token is \"\"\")"
+            "{expression}: {operand_expected} (error token is \"\"\")"
         ));
     }
 
     if trimmed.ends_with(['+', '-', '*', '/', '%', '&', '|', '^', '<', '>']) {
         let token = trimmed.chars().last().unwrap_or_default();
         return Some(format!(
-            "{expression}: syntax error: operand expected (error token is \"{token}\")"
+            "{expression}: {operand_expected} (error token is \"{token}\")"
         ));
     }
 
@@ -984,7 +1017,7 @@ pub(in crate::executor) fn arithmetic_error_message(
             }
             let token = &expression[index + 1..end];
             return Some(format!(
-                "{expression}: syntax error: invalid arithmetic operator (error token is \"{token}{token_space}\")"
+                "{expression}: {invalid_operator} (error token is \"{token}{token_space}\")"
             ));
         }
     }
@@ -1017,7 +1050,7 @@ pub(in crate::executor) fn arithmetic_error_message(
             .unwrap_or(expression.len());
         let token = &expression[start..end];
         return Some(format!(
-            "{expression}: syntax error: operand expected (error token is \"{token}{token_space}\")"
+            "{expression}: {operand_expected} (error token is \"{token}{token_space}\")"
         ));
     }
 
@@ -1394,7 +1427,11 @@ fn empty_ternary_branch_token(expression: &str) -> Option<String> {
 /// (`if (lasttok != STR)`) is `attempted assignment to non-variable`,
 /// while a variable left-hand side passes the lvalue check and then fails
 /// with `operand expected` once the missing operand is read.
-fn trailing_operator_error(expression: &str, _trailing_space: bool) -> Option<String> {
+fn trailing_operator_error(
+    expression: &str,
+    _trailing_space: bool,
+    command_context: bool,
+) -> Option<String> {
     // Bare `++` / `--` keep their dedicated diagnostic.
     let trimmed = expression.trim();
     if trimmed == "++" || trimmed == "--" {
@@ -1547,6 +1584,8 @@ fn trailing_operator_error(expression: &str, _trailing_space: bool) -> Option<St
     );
     let message = if assignment && prev_kind != ArithTokenKind::Str {
         "attempted assignment to non-variable"
+    } else if command_context {
+        "arithmetic syntax error: operand expected"
     } else {
         "syntax error: operand expected"
     };

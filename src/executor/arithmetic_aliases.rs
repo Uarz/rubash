@@ -50,9 +50,9 @@ impl Executor {
                 self.diagnostic_prefix(),
                 label
             );
-        } else if let Some(message) =
-            crate::executor::arithmetic::arithmetic_error_message(expression, trailing_space)
-        {
+        } else if let Some(message) = crate::executor::arithmetic::arithmetic_command_error_message(
+            expression, trailing_space,
+        ) {
             eprintln!("{}{}: {message}", self.diagnostic_prefix(), label);
         }
         use std::io::Write;
@@ -75,7 +75,8 @@ impl Executor {
     /// the raw suffix, so the caller must not synthesize an extra space.
     pub(in crate::executor) fn report_arithmetic_error_raw_display(&self, raw_display: &str) {
         let display = raw_display.trim_start_matches([' ', '\t']);
-        if let Some(message) = crate::executor::arithmetic::arithmetic_error_message(display, false)
+        if let Some(message) =
+            crate::executor::arithmetic::arithmetic_command_error_message(display, false)
         {
             eprintln!("{}((: {message}", self.diagnostic_prefix());
             use std::io::Write;

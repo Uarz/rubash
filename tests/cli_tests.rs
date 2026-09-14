@@ -1511,7 +1511,7 @@ fn arithmetic_for_errors_preserve_failure_status() {
 fn arithmetic_builtin_errors_report_their_owner() {
     for (command, marker) in [
         ("let", "let: expression expected"),
-        ("let '4 +'", "let: 4 +: syntax error: operand expected"),
+        ("let '4 +'", "let: 4 +: arithmetic syntax error: operand expected"),
         (
             "let '7=4'",
             "let: 7=4: attempted assignment to non-variable",
@@ -1542,7 +1542,7 @@ fn arithmetic_expansion_preserves_non_lvalue_increment_operand() {
     assert_eq!(String::from_utf8_lossy(&output.stdout), "7\n7\n");
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("((: -- : syntax error: operand expected (error token is \"- \")"));
+        .contains("((: -- : arithmetic syntax error: operand expected (error token is \"- \")"));
 }
 
 #[test]
