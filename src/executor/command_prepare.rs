@@ -1125,13 +1125,6 @@ impl Executor {
             return None;
         }
         let inner = &braced[2..braced.len() - 1];
-        if !inner.contains("$@")
-            && !inner.contains("${@")
-            && !inner.contains("$*")
-            && !inner.contains("${*")
-        {
-            return None;
-        }
         let (var_name, alternate, use_when_set, require_non_empty) =
             if let Some((var_name, alternate)) = inner.split_once(":+") {
                 (var_name, alternate, true, true)
@@ -1151,9 +1144,37 @@ impl Executor {
         } else {
             value.is_none() || (require_non_empty && value.unwrap_or_default().is_empty())
         };
+
+        // GNU subst.c param_expand: when the parameter itself is $@ or $*
+        // and it is set, the `-`/`:-` operator just uses the parameter's
+        // value (TEMP), which carries W_DOLLARAT for $@. In double quotes
+        // that means one field per positional parameter (like `"$@"`),
+        // and $* joins with IFS[0] into one field (like `"$*"`). The
+        // String-based operator path collapses these to a single joined
+        // field, so intercept here and return the per-parameter fields.
+        if !word_used && var_name == "@" {
+            return Some(self.positional_params.clone());
+        }
+        if !word_used && var_name == "*" {
+            return Some(vec![self
+                .positional_params
+                .join(&self.ifs_first_char_separator())]);
+        }
+
         if !word_used {
             // Alternate unused: quoted-empty/quoted-null handling belongs to
             // the existing paths, which already match GNU for those forms.
+            return None;
+        }
+
+        // The alternate is used. Only the alternate words that contain
+        // $@/$* need the per-parameter re-expansion path; others fall back
+        // to the String-based operator path.
+        if !inner.contains("$@")
+            && !inner.contains("${@")
+            && !inner.contains("$*")
+            && !inner.contains("${*")
+        {
             return None;
         }
 
