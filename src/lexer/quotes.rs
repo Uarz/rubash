@@ -437,6 +437,7 @@ fn escape_decoded_ansi_c_quotes(decoded: &str) -> String {
     decoded
         .replace('\'', &ANSI_C_QUOTE_MARKER.to_string())
         .replace('"', &ANSI_C_DQUOTE_MARKER.to_string())
+        .replace('$', "\x1f")
 }
 
 fn copy_double_quoted_raw(out: &mut String, chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
