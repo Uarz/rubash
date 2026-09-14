@@ -43,6 +43,7 @@ mod command_words;
 mod compound_exec;
 mod history_exec;
 pub(crate) mod substitution_metadata;
+use command_words::raw_word_has_unquoted_parameter_expansion;
 use compound_exec::*;
 mod declare_local;
 mod dynamic_arrays;
