@@ -121,6 +121,16 @@ in_gnu_timeout_list() {
 
 # ---- setup ------------------------------------------------------------------
 prepare_clean_copy
+# Optional platform fixture: some upstream tests (coproc) cat /etc/passwd,
+# which Git Bash does not ship (WSL has its own). Opt in with
+# NIU83_FIX_ETC_PASSWD=1; writes a one-line root entry only when missing.
+if [ -n "${NIU83_FIX_ETC_PASSWD:-}" ] && [ ! -f /etc/passwd ]; then
+  if printf 'root:x:0:0:root:/root:/bin/bash\n' > /etc/passwd 2>/dev/null; then
+    echo "run-83.sh: created minimal /etc/passwd (NIU83_FIX_ETC_PASSWD=1)" >&2
+  else
+    echo "run-83.sh: cannot create /etc/passwd (need write access to the Git root)" >&2
+  fi
+fi
 if [ "$MODE" = gen ] || [ "$MODE" = live ]; then
   prepare_wsl_helpers
 fi
@@ -153,7 +163,13 @@ normalize_side() { # $1=in  $2=out
       -e "s|$ROOT_WIN_FWD|<REPO>|g" \
       -e "s|$ROOT_WIN_BS_SED|<REPO>|g" \
       -e 's|/mnt/\([a-zA-Z]\)/repo/rubash|<REPO>|g' \
-      "$1" > "$2"
+      "$1" \
+    | grep -v -e 'completion_strip_exe' \
+             -e 'set +o igncr' \
+             -e 'set +o restricted' \
+             -e '^igncr[[:space:]]' \
+             -e '^restricted[[:space:]]' \
+    > "$2"
 }
 
 for name in "${names[@]}"; do

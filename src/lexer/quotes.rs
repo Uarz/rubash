@@ -652,6 +652,5 @@ mod probe_tests {
     #[test]
     fn probe_escaped_quote_value() {
         let out = super::remove_shell_quotes("a[\\\" \\\"]=15");
-        eprintln!("PROBE-OUT={out:?}");
-    }
+        }
 }
