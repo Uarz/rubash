@@ -27,6 +27,14 @@ where
     W: Write,
     E: Write,
 {
+    // GNU builtins/hash.def:86-90: when hashing is disabled (set +h), the
+    // entire `hash` builtin refuses with "hash: hashing disabled" and
+    // returns failure, before any option parsing.
+    if !crate::builtins::set::shell_option_enabled(env_vars, "hashall") {
+        writeln!(stderr, "{}hash: hashing disabled", script_prefix())?;
+        return Ok(EXECUTION_FAILURE);
+    }
+
     let mut print = args.is_empty();
     let mut delete = false;
     let mut pathname = None;

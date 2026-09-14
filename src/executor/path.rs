@@ -176,6 +176,14 @@ pub fn find_user_command(name: &str, env_vars: &HashMap<String, String>) -> Opti
         return None;
     }
 
+    // GNU findcmd.c:356-365 + variables.c: `hashing_enabled` is the runtime
+    // mirror of `set -h` / `set +h` (the `hashall` shell option). When it is
+    // off, search_for_command skips phash_search AND phash_insert entirely,
+    // so every lookup pays a full PATH scan and nothing is remembered.
+    if !crate::builtins::set::shell_option_enabled(env_vars, "hashall") {
+        return find_user_command_uncached(name, env_vars);
+    }
+
     let fingerprint = command_lookup_fingerprint(env_vars);
     {
         let mut cache = command_lookup_cache()
@@ -185,7 +193,20 @@ pub fn find_user_command(name: &str, env_vars: &HashMap<String, String>) -> Opti
             cache.results.clear();
             cache.fingerprint = fingerprint.clone();
         } else if let Some(result) = cache.results.get(name) {
-            return result.clone();
+            // GNU findcmd.c:367-380: if check_hashed_filenames (the `checkhash`
+            // shopt) is active, stat the cached path on every hit; a file
+            // that no longer exists or is not executable is removed from the
+            // hash table and PATH search resumes.
+            if let Some(path) = result {
+                if crate::builtins::shopt::checkhash_enabled() && !cached_path_still_valid(path) {
+                    cache.results.remove(name);
+                    // fall through to re-search PATH below
+                } else {
+                    return Some(path.clone());
+                }
+            } else {
+                return result.clone();
+            }
         }
     }
 
@@ -203,6 +224,14 @@ pub fn find_user_command(name: &str, env_vars: &HashMap<String, String>) -> Opti
     }
     cache.results.insert(name.to_string(), result.clone());
     result
+}
+
+/// GNU findcmd.c:373 `file_status(hashed_file)` checks FS_EXISTS|FS_EXECABLE.
+/// On Windows executability is extension-driven, so a plain existence+file
+/// check is the closest equivalent; the full PATHEXT probe would be too
+/// expensive per cache hit.
+fn cached_path_still_valid(path: &Path) -> bool {
+    path.exists() && path.is_file()
 }
 
 fn find_user_command_uncached(name: &str, env_vars: &HashMap<String, String>) -> Option<PathBuf> {
