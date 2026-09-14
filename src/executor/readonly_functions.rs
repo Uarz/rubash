@@ -61,6 +61,9 @@ impl Executor {
                     'f' => {}
                     'p' => print = true,
                     'a' | 'A' => {}
+                    // GNU setattr.def ATTROPTS includes `n`; for readonly it's
+                    // a silently-disallowed undo (no-op here too).
+                    'n' => {}
                     other => {
                         writeln!(
                             stderr,

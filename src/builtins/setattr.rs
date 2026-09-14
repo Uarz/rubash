@@ -171,6 +171,10 @@ where
                 'a' => array = true,
                 'A' => assoc = true,
                 'f' => {}
+                // GNU setattr.def ATTROPTS includes `n` (undo attribute).
+                // For `readonly`, undoing att_readonly is silently disallowed
+                // (setattr.def lines 174-176), so `-n` is an accepted no-op.
+                'n' => {}
                 other => {
                     writeln!(
                         stderr,
