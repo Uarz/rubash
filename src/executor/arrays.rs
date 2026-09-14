@@ -156,10 +156,33 @@ pub(super) fn field_split_values_with_ifs(value: &str, ifs: Option<&str>) -> Vec
     // Non-whitespace IFS: every separator produces a field. Bash keeps leading
     // and internal empty fields (`IFS=:; set -- :a::b`) and drops only the
     // final empty field produced by a trailing delimiter.
-    let mut fields: Vec<String> = value
-        .split(|ch| ifs.contains(ch))
-        .map(str::to_string)
-        .collect();
+    // \x1c marks literal IFS characters that must not be split (GNU CTLESC:
+    // literal word characters are marked during expansion, only expansion
+    // results are eligible for IFS splitting).
+    let chars: Vec<char> = value.chars().collect();
+    let mut fields: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut index = 0;
+    while index < chars.len() {
+        let ch = chars[index];
+        if ch == '\x1c' {
+            // Protected literal character — add next char to current field
+            index += 1;
+            if index < chars.len() {
+                current.push(chars[index]);
+                index += 1;
+            }
+            continue;
+        }
+        if ifs.contains(ch) {
+            fields.push(std::mem::take(&mut current));
+            index += 1;
+            continue;
+        }
+        current.push(ch);
+        index += 1;
+    }
+    fields.push(current);
     if fields.last().is_some_and(|field| field.is_empty()) && fields.len() > 1 {
         fields.pop();
     }
