@@ -18,7 +18,7 @@ pub(in crate::executor) struct AssignmentExpansionResult {
 /// single-quoted segment data can never contain a raw `${` (the lexer
 /// protects those dollars as \x1f), so a plain `${` here is always a real
 /// expansion body (array6.sub: a2=("${a[@]/#/"-iname '"}")).
-fn hoist_data_double_quotes(value: &str, marker: &str) -> String {
+pub(in crate::executor) fn hoist_data_double_quotes(value: &str, marker: &str) -> String {
     if !value.contains("${") {
         return value.replace('"', marker);
     }

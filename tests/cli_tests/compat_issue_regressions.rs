@@ -1781,3 +1781,33 @@ fn standalone_assignment_persists_but_prefix_assignment_restores() {
     );
     assert!(String::from_utf8_lossy(&output.stderr).is_empty());
 }
+
+#[test]
+fn command_substitution_preserves_nested_quote_literals() {
+    // split_shell_words strips quote delimiters from the body words, so a
+    // body whose quotes must survive into the output (JSON one-liners,
+    // quoted python -c code) detours through the real parser/executor;
+    // GNU subst.c always parses the body. Top-level quote delimiters keep
+    // the fast paths on purpose: stripping them matches bash, and the
+    // heredoc backtick / IFS read probes rely on it.
+    let output = Command::new(env!("CARGO_BIN_EXE_rubash"))
+        .arg("-c")
+        .arg(concat!(
+            "v=$(echo '{\"a\":1}')\n",
+            "echo [$v]\n",
+            "echo [$(echo \"{\\\"b\\\":2}\")]\n",
+            "echo A[$(echo '{\"c\":3}')]\n",
+            "echo \"W=[$(echo '{\"d\":4}')]\"\n",
+            "echo [$(printf '{\"p\":6}\n' | head -1)]\n",
+            "echo [$(echo \"'s'\")]\n",
+        ))
+        .output()
+        .expect("run cmdsub quote preservation probe");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "[{\"a\":1}]\n[{\"b\":2}]\nA[{\"c\":3}]\nW=[{\"d\":4}]\n[{\"p\":6}]\n['s']\n"
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+}

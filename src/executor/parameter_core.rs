@@ -1,4 +1,5 @@
 use super::*;
+use crate::executor::assignment_expansion::hoist_data_double_quotes;
 
 impl Executor {
     pub(in crate::executor) fn is_brace_expand_enabled(&self) -> bool {
@@ -124,14 +125,24 @@ impl Executor {
             if compound_assignment && !value.contains('$') && !value.contains('`') {
                 return format!("{name}={COMPOUND_ASSIGNMENT_MARKER}{raw_value}");
             }
-            let expanded = self.expand_embedded_parameters_mut(&format!(
-                "{}{raw_value}",
-                if compound_assignment {
-                    COMPOUND_ASSIGNMENT_MARKER
-                } else {
-                    ""
-                }
-            ));
+            // Raw `"` surviving in the token value are single-quote DATA
+            // (remove_shell_quotes consumed the active delimiters). Hoist
+            // them across the embedded-parameter re-scan exactly like the
+            // assignment-storage path, or an argument word shaped
+            // `echo K='a"b'` loses the quote when this re-scan re-reads the
+            // bare quote as a delimiter.
+            const DQ_DATA: &str = "\u{E102}";
+            let expanded = self
+                .expand_embedded_parameters_mut(&format!(
+                    "{}{}",
+                    if compound_assignment {
+                        COMPOUND_ASSIGNMENT_MARKER
+                    } else {
+                        ""
+                    },
+                    hoist_data_double_quotes(raw_value, DQ_DATA)
+                ))
+                .replace(DQ_DATA, "\"");
             if !quoted
                 && !expanded.contains('=')
                 && (self.env_vars.get("__RUBASH_POSIX_MODE").map(String::as_str) != Some("1")
