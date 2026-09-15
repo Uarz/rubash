@@ -35,12 +35,7 @@ impl Executor {
             "tr" => {
                 let args = words[1..]
                     .iter()
-                    .map(|word| {
-                        self.expand_word(word)
-                            .replace('\x15', "\\")
-                            .replace('\x1f', "$")
-                            .replace('\x11', "")
-                    })
+                    .map(|word| self.expand_word(word))
                     .collect::<Vec<_>>();
                 if args.len() != 2 {
                     return None;
