@@ -70,3 +70,21 @@ fn brace_group_cd_still_leaks() {
     assert_ne!(lines[0], lines[1]);
     assert_eq!(code, Some(0));
 }
+
+#[test]
+fn function_subshell_body_keeps_assignments_local() {
+    // `f() ( v=inner )` runs the body in a subshell: the typed variable
+    // store must be saved and restored like env_vars (the flat
+    // subshell/subshell_end path, parser function_command.rs).
+    let (stdout, _, code) = rubash(r#"v=outer; f() ( v=inner; echo "in:$v" ); f; echo "out:$v""#);
+    assert_eq!(stdout, "in:inner\nout:outer\n");
+    assert_eq!(code, Some(0));
+}
+
+#[test]
+fn function_subshell_body_keeps_positional_params_local() {
+    let (stdout, _, code) =
+        rubash(r#"set -- a b; f() ( set -- x y; echo "in:$1 $2" ); f; echo "out:$1 $2""#);
+    assert_eq!(stdout, "in:x y\nout:a b\n");
+    assert_eq!(code, Some(0));
+}

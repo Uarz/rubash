@@ -163,7 +163,14 @@ fn tokenize_with_heredocs(
     // line-oriented collector handles the simple `<<word` and `<<'word'`
     // forms used by early upstream alias tests.
     let mut output = Vec::new();
-    let mut lines = input.lines();
+    // GNU bash does NOT strip CR from CRLF line endings: a '\r' left by a
+    // Windows checkout is ordinary word text (e.g. `set ""\r` makes $1 = \r,
+    // not the empty string). Rust's str::lines() strips trailing '\r', which
+    // silently drops the byte. Split on '\n' only and keep '\r' in the line
+    // content, matching GNU parse.y read_secondary_line. The trailing empty
+    // string that split('\n') produces when the input ends with '\n' is
+    // skipped below to match str::lines() semantics.
+    let mut lines = input.split('\n').peekable();
     let mut position = 0;
     let mut line_number = start_line;
     let mut logical_start_line = start_line;
@@ -180,6 +187,11 @@ fn tokenize_with_heredocs(
     let mut header_scan_from = 0usize;
 
     while let Some(line) = lines.next() {
+        // str::lines() drops the trailing empty string that split('\n')
+        // produces when the input ends with '\n'. Replicate that here.
+        if line.is_empty() && lines.peek().is_none() {
+            break;
+        }
         if logical_line.is_empty() {
             logical_start_line = line_number;
         }

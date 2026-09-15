@@ -888,7 +888,9 @@ fn run_script_with_history(executor: &mut Executor, contents: &str) -> i32 {
         while index < raw_lines.len() {
             let raw = raw_lines[index];
             let text = raw.trim_end_matches('\n');
-            let text = text.strip_suffix('\r').unwrap_or(text);
+            // GNU bash does NOT strip CR from CRLF line endings: a '\r'
+            // left by a Windows checkout is ordinary word text. Keep it
+            // so the tokenizer and expansion see the same bytes as GNU.
             index += 1;
             let mut is_body = false;
             if let Some((delimiter, strip_tabs)) = pending_heredocs.first().cloned() {

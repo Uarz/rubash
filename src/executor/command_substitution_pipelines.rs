@@ -249,7 +249,7 @@ impl Executor {
         if first.words.first().map(String::as_str) != Some("cat") {
             return None;
         }
-        if closed_by_paren {
+        if closed_by_paren || command_has_warned_heredoc(first) {
             self.report_command_substitution_heredoc_warning(&source, first);
         }
         let mut output = if first.pipe.is_none() && ast.commands.len() > 1 {
@@ -315,7 +315,7 @@ impl Executor {
             return None;
         }
 
-        if closed_by_paren {
+        if closed_by_paren || command_has_warned_heredoc(first) {
             self.report_command_substitution_heredoc_warning(&source, first);
         }
 

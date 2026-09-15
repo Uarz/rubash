@@ -110,9 +110,23 @@ impl Executor {
                 .map(|value| parameter_char_length(&value).to_string())
                 .unwrap_or_else(|| "0".to_string());
         }
-        if let Some((array_name, key)) = parse_array_subscript(var_name) {
+        if let Some((array_name, raw_key)) = parse_array_subscript(var_name) {
             if self.is_assoc_parameter_array(array_name) {
-                let key = self.assoc_subscript_key(key);
+                let key = self.assoc_subscript_key(raw_key);
+                // GNU subst.c:7545-7552: for assoc arrays, if the expanded
+                // key is empty, report `bad array subscript` and return empty
+                // (assoc.tests:99 ${#wheat[$unset]} with $unset empty).
+                // GNU reports the raw (unexpanded) subscript text in the
+                // error: `[$unset]: bad array subscript`.
+                if key.is_empty() {
+                    eprintln!(
+                        "{}[{}]: bad array subscript",
+                        self.diagnostic_prefix(),
+                        raw_key
+                    );
+                    self.arithmetic_nonfatal_error.set(true);
+                    return String::new();
+                }
                 return self
                     .parameter_array_storage(array_name)
                     .and_then(|value| assoc_value_at(&value, &key))
@@ -125,11 +139,11 @@ impl Executor {
             // parse_array_integer_subscript / parse_array_numeric_subscript
             // only accept bare digit strings, so evaluate the subscript
             // here for scalar vars and indexed arrays alike.
-            let expr = key
+            let expr = raw_key
                 .strip_prefix("$((")
                 .and_then(|e| e.strip_suffix("))"))
                 .map(|e| e.trim())
-                .unwrap_or(key);
+                .unwrap_or(raw_key);
             if let Some(index) = eval_conditional_arith_value(expr, &self.env_vars) {
                 if let Some(value) = self.env_vars.get(array_name) {
                     if let Some(resolved) = resolve_indexed_array_subscript(value, index) {

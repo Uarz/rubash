@@ -830,7 +830,18 @@ impl Executor {
         } else {
             word
         };
+        let saved_nonfatal = self.arithmetic_nonfatal_error.replace(false);
         let expanded = self.expand_word_mut_with_context(word_to_expand, context);
+        // GNU subst.c:9955-9956: when parameter_brace_expand_length returns
+        // a negative number (bad array subscript), the word expansion returns
+        // &expand_wdesc_error and the word is dropped entirely (echo produces
+        // no output, not even an empty line). We signal this via
+        // arithmetic_nonfatal_error; drop the word when it is set.
+        if self.arithmetic_nonfatal_error.get() {
+            self.arithmetic_nonfatal_error.set(saved_nonfatal);
+            return Vec::new();
+        }
+        self.arithmetic_nonfatal_error.set(saved_nonfatal);
         // GNU does not apply quote removal to parameter-expansion results:
         // quotes in an expanded value are literal data, not syntax. Calling
         // remove_shell_quotes here dropped a trailing quote such as the x'
