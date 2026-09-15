@@ -252,7 +252,7 @@ fn unmark_variable(env_vars: &mut HashMap<String, String>, key: &str, name: &str
     }
 }
 
-fn valid_identifier(name: &str) -> bool {
+pub(super) fn valid_identifier(name: &str) -> bool {
     let mut chars = name.chars();
     let Some(first) = chars.next() else {
         return false;

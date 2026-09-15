@@ -12,6 +12,7 @@ pub(crate) use options::{
 };
 pub use unset::unset;
 pub(crate) use unset::unset_with_stderr;
+use unset::valid_identifier;
 
 use std::collections::HashMap;
 use std::io::{self, Write};
@@ -190,6 +191,15 @@ where
         // option state) are invisible in listings, like GNU's invisible_p
         // vars in print_var_list (variables.c).
         if name.starts_with("__RUBASH_") {
+            continue;
+        }
+        // GNU variables.c:511-526 (initialize_shell_variables): environment
+        // entries whose names are not valid identifiers (e.g.
+        // CommonProgramFiles(x86)) are bound into the invisible invalid_env
+        // table instead of shell_variables, so print_var_list never shows
+        // them. They still reach child processes through the export
+        // environment (maybe_make_export_env, variables.c:5064).
+        if !valid_identifier(name) {
             continue;
         }
         writeln!(stdout, "{}={}", name, shell_quote(value))?;

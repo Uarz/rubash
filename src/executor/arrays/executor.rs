@@ -272,7 +272,10 @@ impl Executor {
                     .env_vars
                     .keys()
                     .map(String::as_str)
-                    .filter(|name| name.starts_with(prefix))
+                    // GNU param_expand lists shell_variables only; invalid-name
+                    // environment entries live in the invisible invalid_env
+                    // table (variables.c:3307) and never match (issue #102).
+                    .filter(|name| is_shell_name(name) && name.starts_with(prefix))
                     .map(str::to_string)
                     .collect::<Vec<_>>();
                 names.sort_unstable();
@@ -286,7 +289,8 @@ impl Executor {
                     .env_vars
                     .keys()
                     .map(String::as_str)
-                    .filter(|name| name.starts_with(prefix))
+                    // Same invalid_env exclusion as the @ form above (issue #102).
+                    .filter(|name| is_shell_name(name) && name.starts_with(prefix))
                     .map(str::to_string)
                     .collect::<Vec<_>>();
                 names.sort_unstable();

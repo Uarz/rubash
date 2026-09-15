@@ -53,6 +53,7 @@ src/executor/shift_echo_builtins.rs::\+ 0x40\) as char
 src/expand/braces.rs::\(byte as char\)\.to_string\(\)
 src/lexer/word.rs::as_bytes\(\)\[name_start - 1\] as char
 src/parser/ast_print.rs::bytes\[index\] as char
+src/parser/token_actions.rs::Some\(c as char\)
 src/executor/parameter_replace.rs::&value\[cursor
 EOF
 )

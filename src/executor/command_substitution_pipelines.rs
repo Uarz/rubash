@@ -29,20 +29,26 @@ fn heredoc_header_closes_command_substitution(source: &str) -> bool {
     // Parse the delimiter word: characters until unquoted whitespace, `;`,
     // `|`, `&`, or `)`.  Backslash escapes the next character.  Single and
     // double quotes delimit quoted sections that are part of the delimiter.
+    // Byte-level scan: the delimiter grammar is pure ASCII structure
+    // (backslash, quotes, whitespace, ;|&)). Comparing raw bytes avoids the
+    // byte->char widening hazard — a UTF-8 continuation byte 0x85 widened to
+    // char would read as U+0085 and satisfy char::is_whitespace(),
+    // truncating a multibyte delimiter mid-character (see
+    // scripts/check-utf8-boundary-hygiene.sh).
     let bytes = after.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        let ch = bytes[i] as char;
-        if ch == '\\' && i + 1 < bytes.len() {
+        let byte = bytes[i];
+        if byte == b'\\' && i + 1 < bytes.len() {
             // Escaped character is part of the delimiter
             i += 2;
             continue;
         }
-        if ch == '\'' || ch == '"' {
+        if byte == b'\'' || byte == b'"' {
             // Quoted section: skip to matching quote
-            let quote = ch;
+            let quote = byte;
             i += 1;
-            while i < bytes.len() && bytes[i] as char != quote {
+            while i < bytes.len() && bytes[i] != quote {
                 i += 1;
             }
             if i < bytes.len() {
@@ -50,7 +56,7 @@ fn heredoc_header_closes_command_substitution(source: &str) -> bool {
             }
             continue;
         }
-        if ch.is_whitespace() || matches!(ch, ';' | '|' | '&' | ')') {
+        if byte.is_ascii_whitespace() || matches!(byte, b';' | b'|' | b'&' | b')') {
             break;
         }
         i += 1;

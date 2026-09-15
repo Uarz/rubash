@@ -114,11 +114,15 @@ impl Executor {
             .strip_suffix('*')
             .or_else(|| indirect_name.strip_suffix('@'))
         {
+            // GNU param_expand lists shell_variables only (subst.c
+            // parameter_brace_expand_indir); invalid-name environment
+            // entries live in the separate invisible invalid_env table
+            // (variables.c:3307) and never match (niubash issue #102).
             let mut names: Vec<&str> = self
                 .env_vars
                 .keys()
                 .map(String::as_str)
-                .filter(|name| name.starts_with(prefix))
+                .filter(|name| is_shell_name(name) && name.starts_with(prefix))
                 .collect();
             names.sort_unstable();
             return Some(names.join(" "));

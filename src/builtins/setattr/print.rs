@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 
 use super::marks::marked_vars;
-use super::value::{format_array_value, is_array_value, quote_export_value};
+use super::value::{format_array_value, is_array_value, quote_export_value, valid_identifier};
 use super::{
     ARRAY_VARS, ASSOC_VARS, EXPORTED_VARS, INTEGER_VARS, LOWERCASE_VARS, READONLY_VARS,
     UPPERCASE_VARS,
@@ -41,6 +41,12 @@ where
             continue;
         }
         if assoc_filter && !is_assoc {
+            continue;
+        }
+        // Same invalid_env rule as print_exported: an inherited entry whose
+        // name is not a valid identifier never became a shell variable, so
+        // the readonly listing must not resurrect it (niubash issue #102).
+        if !valid_identifier(&name) {
             continue;
         }
         if let Some(value) = env_vars.get(&name) {
@@ -134,6 +140,18 @@ where
 
     for name in names {
         if name.starts_with("__RUBASH_") {
+            continue;
+        }
+        // GNU variables.c:511-526 (initialize_shell_variables): environment
+        // entries whose names are not valid identifiers (Windows inherits
+        // names like `CommonProgramFiles(x86)`) are bound into the invisible
+        // invalid_env table instead of shell_variables, so the export
+        // listing never prints them. They still reach child processes
+        // through the export environment (maybe_make_export_env,
+        // variables.c:5064). Source-ing a snapshot line like
+        // `declare -x CommonProgramFiles(x86)=...` is a bash syntax error,
+        // which broke Hermes env snapshots (niubash issue #102).
+        if !valid_identifier(&name) {
             continue;
         }
         if let Some(value) = env_vars.get(&name) {

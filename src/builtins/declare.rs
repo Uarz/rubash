@@ -546,6 +546,22 @@ where
             }
         }
         if !valid_declare_name(name) {
+            if print && !name.contains('=') {
+                // GNU declare.def: -p is display-only; the identifier check
+                // gates attribute changes, not display, so an invalid name
+                // reaches find_variable and reports "not found" — never the
+                // full listing fallback (niubash issue #102 probe: bash 5.3.0
+                // prints `declare: X(BR): not found` for `declare -p X(BR)`,
+                // `not a valid identifier` only without -p).
+                writeln!(
+                    stderr,
+                    "{}{command_name}: {}: not found",
+                    diagnostic_prefix(variables),
+                    name
+                )?;
+                attr_status = EXECUTION_FAILURE;
+                continue;
+            }
             let diagnostic = format!(
                 "{}{command_name}: `{}': not a valid identifier\n",
                 diagnostic_prefix(variables),
@@ -683,6 +699,15 @@ where
         attr_status = EXECUTION_FAILURE;
     }
     let names = attr_names;
+    // GNU declare.def: with explicit operands, -p prints exactly those
+    // names and reports per-name errors ("not a valid identifier", "not
+    // found"); it never falls back to a full listing. Operands rejected in
+    // the loop above (e.g. `declare -p 'X(BR)'` on an inherited
+    // CommonProgramFiles(x86)-style name) leave nothing to print — the
+    // empty-names listing below is only for the no-operand invocation.
+    if names.is_empty() && had_name_args {
+        return Ok(attr_status);
+    }
     let options = DeclareOptions {
         export,
         array,

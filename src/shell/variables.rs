@@ -262,6 +262,17 @@ impl VariableStore {
     pub fn from_environment(environment: &HashMap<String, String>) -> Self {
         let mut store = Self::default();
         for (name, value) in environment {
+            // GNU variables.c:511-526 (initialize_shell_variables): only
+            // valid identifiers are bound as shell variables; entries with
+            // invalid names (Windows inherits names like
+            // `CommonProgramFiles(x86)`) go into the invisible invalid_env
+            // table (variables.c:3307 bind_invalid_envvar) — exported to
+            // children, never expandable or listable. Rubash keeps those
+            // entries in the executor's env_vars mirror for child-process
+            // passthrough; the typed store only mirrors shell variables.
+            if !is_valid_identifier(name) {
+                continue;
+            }
             let mut variable = Variable::scalar(value.clone());
             variable.exported = true;
             store.variables.insert(name.clone(), variable);
@@ -291,6 +302,18 @@ impl VariableStore {
             })
             .collect()
     }
+}
+
+/// GNU general.c valid_identifier: `[A-Za-z_][A-Za-z0-9_]*` (with the POSIX
+/// function-name restriction compiled out of the 5.3 baseline — see
+/// executor/support_names.rs valid_function_identifier).
+fn is_valid_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) if first == '_' || first.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
 #[cfg(test)]
@@ -340,6 +363,28 @@ mod tests {
         variable.uppercase = true;
         store.set("value", variable).unwrap();
         assert_eq!(store.export_environment()["value"], "MIXED");
+    }
+
+    // GNU variables.c:511-526: inherited entries whose names are not valid
+    // identifiers (Windows `CommonProgramFiles(x86)`) never become shell
+    // variables (niubash issue #102).
+    #[test]
+    fn from_environment_skips_invalid_identifier_names() {
+        let mut environment = HashMap::new();
+        environment.insert("VALID_NAME".to_string(), "kept".to_string());
+        environment.insert("CommonProgramFiles(x86)".to_string(), "dropped".to_string());
+        environment.insert(
+            "BASH_FUNC_rm%%".to_string(),
+            "() { rm \"$@\"; }".to_string(),
+        );
+        environment.insert("WITH SPACE".to_string(), "dropped".to_string());
+        environment.insert("1STARTS_DIGIT".to_string(), "dropped".to_string());
+        let store = VariableStore::from_environment(&environment);
+        assert_eq!(store.get("VALID_NAME").map(|v| v.exported), Some(true));
+        assert!(store.get("CommonProgramFiles(x86)").is_none());
+        assert!(store.get("BASH_FUNC_rm%%").is_none());
+        assert!(store.get("WITH SPACE").is_none());
+        assert!(store.get("1STARTS_DIGIT").is_none());
     }
 
     #[test]
