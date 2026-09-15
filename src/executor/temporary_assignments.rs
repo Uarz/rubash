@@ -454,6 +454,29 @@ impl Executor {
         let is_array = compound_assignment
             || is_marked_var(&self.env_vars, ARRAY_VARS, base_name)
             || is_marked_var(&self.env_vars, ASSOC_VARS, base_name);
+        // GNU variables.c:3128-3142 bind_variable_internal: when the
+        // variable is already an array, a scalar assignment sets array[0]
+        // without clearing other elements (array.tests:171-174:
+        // x[4]=bbb; x=abde keeps x[4]=bbb). Only compound `x=(...)` or
+        // append `x+=...` should replace/extend the whole array.
+        if !compound_assignment
+            && !append
+            && is_array
+            && !is_marked_var(&self.env_vars, ASSOC_VARS, base_name)
+            && !value.starts_with('\x1d')
+        {
+            let current = self.env_vars.get(base_name).cloned().unwrap_or_default();
+            let mut entries = indexed_array_entries(&current);
+            entries.insert(0, value.clone());
+            let storage = format_indexed_array_storage(entries);
+            self.env_vars.insert(base_name.to_string(), storage);
+            mark_env_name(&mut self.env_vars, ARRAY_VARS, base_name);
+            if crate::builtins::set::shell_option_enabled(&self.env_vars, "allexport") {
+                set_process_env(base_name, self.env_vars[base_name].clone());
+            }
+            self.exit_code = 0;
+            return true;
+        }
         if !is_array {
             if let Some(variable) = self.shell_state.variables.get_mut(base_name) {
                 if let crate::shell::ShellValue::Scalar(current) = &mut variable.value {
