@@ -1059,6 +1059,12 @@ fn valid_compound_assignment_lhs(lhs: &str) -> bool {
 /// Scan the raw text of a compound assignment value `( ... )` for an
 /// unquoted control operator (&, |, ;, <, >) that GNU's
 /// parse_compound_assignment rejects as a syntax error.
+///
+/// GNU parse_compound_assignment (parse.y:7140) uses read_token(READ)
+/// to tokenize; `$(...)`, `${...}` and backtick command substitutions
+/// are consumed as part of a WORD token, so control operators inside
+/// them are NOT syntax errors at the compound-assignment level. This
+/// scanner must skip those constructs the same way.
 fn find_unquoted_ctrl_op(value: &str) -> Option<char> {
     let bytes = value.as_bytes();
     let mut i = 0;
@@ -1068,7 +1074,62 @@ fn find_unquoted_ctrl_op(value: &str) -> Option<char> {
     let mut in_single = false;
     let mut in_double = false;
     let mut escaped = false;
+    let mut backtick_depth = 0i32;
     while i < bytes.len() {
+        let c = bytes[i];
+        if escaped {
+            escaped = false;
+            i += 1;
+            continue;
+        }
+        // Inside backticks, everything is literal until the closing `
+        if backtick_depth > 0 {
+            match c {
+                b'\\' if !in_single => escaped = true,
+                b'`' if !in_single && !in_double => backtick_depth -= 1,
+                _ => {}
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            b'\\' if !in_single => escaped = true,
+            b'\'' if !in_double => in_single = !in_single,
+            b'"' if !in_single => in_double = !in_double,
+            // Skip $(...) command substitution — GNU read_token_word
+            // consumes it as one unit; control operators inside are
+            // part of the subshell, not the compound assignment.
+            b'$' if !in_single && i + 1 < bytes.len() && bytes[i + 1] == b'(' => {
+                i = skip_dollar_paren(bytes, i + 2);
+                continue;
+            }
+            // Skip ${...} parameter expansion — same reasoning.
+            b'$' if !in_single && i + 1 < bytes.len() && bytes[i + 1] == b'{' => {
+                i = skip_dollar_brace(bytes, i + 2);
+                continue;
+            }
+            // Skip backtick command substitution.
+            b'`' if !in_single && !in_double => {
+                backtick_depth += 1;
+            }
+            b'&' | b'|' | b';' | b'<' | b'>' if !in_single && !in_double => {
+                return Some(c as char);
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Skip from just after `$(` to the matching `)`, respecting nested
+/// `$(...)`, `${...}`, quotes, and backticks.
+fn skip_dollar_paren(bytes: &[u8], mut i: usize) -> usize {
+    let mut depth = 1i32;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    while i < bytes.len() && depth > 0 {
         let c = bytes[i];
         if escaped {
             escaped = false;
@@ -1079,12 +1140,41 @@ fn find_unquoted_ctrl_op(value: &str) -> Option<char> {
             b'\\' if !in_single => escaped = true,
             b'\'' if !in_double => in_single = !in_single,
             b'"' if !in_single => in_double = !in_double,
-            b'&' | b'|' | b';' | b'<' | b'>' if !in_single && !in_double => {
-                return Some(c as char);
+            b'$' if !in_single && i + 1 < bytes.len() && bytes[i + 1] == b'(' => {
+                depth += 1;
+                i += 1;
             }
+            b')' if !in_single && !in_double => depth -= 1,
             _ => {}
         }
         i += 1;
     }
-    None
+    i
+}
+
+/// Skip from just after `${` to the matching `}`, respecting nested
+/// `${...}` and quotes.
+fn skip_dollar_brace(bytes: &[u8], mut i: usize) -> usize {
+    let mut depth = 1i32;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    while i < bytes.len() && depth > 0 {
+        let c = bytes[i];
+        if escaped {
+            escaped = false;
+            i += 1;
+            continue;
+        }
+        match c {
+            b'\\' if !in_single => escaped = true,
+            b'\'' if !in_double => in_single = !in_single,
+            b'"' if !in_single => in_double = !in_double,
+            b'{' if !in_single && !in_double => depth += 1,
+            b'}' if !in_single && !in_double => depth -= 1,
+            _ => {}
+        }
+        i += 1;
+    }
+    i
 }
