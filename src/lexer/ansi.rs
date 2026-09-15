@@ -9,7 +9,14 @@ fn is_assignment_carrier_byte(byte: u32) -> bool {
     // so they take the same owner-tagged carrier as the C0 quote bytes.
     // unicode1.sub [0x000c]=$'\f' and [0x0013]=$'\023' both collapsed to
     // empty elements without this.
-    matches!(byte, 0x0c | 0x11 | 0x13 | 0x14 | 0x16 | 0x17 | 0x1a | 0x1f)
+    // U+0018 is the double-quote sentinel used by embedded-parameter
+    // expansion; U+001C is the protected-whitespace / alternate-word
+    // marker. Both must be tagged so the expansion walker treats them as
+    // data, not markers (exp1.sub $'\c\\\001' and $'\034').
+    matches!(
+        byte,
+        0x0c | 0x11 | 0x13 | 0x14 | 0x16 | 0x17 | 0x18 | 0x1a | 0x1c | 0x1f
+    )
 }
 
 pub(crate) fn decode_ansi_c_quoted(value: &str) -> String {
@@ -103,11 +110,20 @@ pub(crate) fn decode_ansi_c_quoted(value: &str) -> String {
                 // GNU chartypes.h TOCTRL: \c? → 0x7f (DEL), otherwise
                 // TOUPPER(c) & 0x1f.  An omitted operand (end of string)
                 // passes \c through literally (strtrans.c ansic_quote).
+                // Posix requires $'\c\\' to do backslash escaping: if the
+                // operand is `\` and the next character is also `\`,
+                // consume the second backslash (strtrans.c ansicstr 203-204).
                 if let Some(c) = chars.next() {
-                    let value = if c == '?' {
+                    let operand = if c == '\\' && chars.peek() == Some(&'\\') {
+                        chars.next();
+                        '\\'
+                    } else {
+                        c
+                    };
+                    let value = if operand == '?' {
                         0x7f
                     } else {
-                        (c.to_ascii_uppercase() as u32) & 0x1f
+                        (operand.to_ascii_uppercase() as u32) & 0x1f
                     };
                     push_ansi_c_byte(&mut output, value);
                 } else {
