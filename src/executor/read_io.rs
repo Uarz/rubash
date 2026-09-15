@@ -428,21 +428,40 @@ impl Executor {
         let mut stdin = io::stdin().lock();
         let mut bytes = [0_u8; 1];
         let mut output = String::new();
+        let mut decoder = StdinCharDecoder::new();
+        let mut units = 0usize;
+        let mut eof = false;
         loop {
-            let count = stdin.read(&mut bytes).ok()?;
-            if count == 0 {
+            if !decoder.has_queued() {
+                let count = stdin.read(&mut bytes).ok()?;
+                if count == 0 {
+                    eof = true;
+                    break;
+                }
+                decoder.queue_byte(bytes[0]);
+            }
+            let Some(unit) = decoder.next_unit() else {
+                continue;
+            };
+            match unit {
+                StdinUnit::Char(ch) => {
+                    if !exact_char_limit && ch == delimiter {
+                        break;
+                    }
+                    output.push(ch);
+                    units += 1;
+                }
+                StdinUnit::RawByte { text } => {
+                    output.push_str(&text);
+                    units += 1;
+                }
+            }
+            if char_limit.is_some_and(|limit| units >= limit) {
                 break;
             }
-
-            let ch = bytes[0] as char;
-            if !exact_char_limit && ch == delimiter {
-                break;
-            }
-
-            output.push(ch);
-            if char_limit.is_some_and(|limit| output.chars().count() >= limit) {
-                break;
-            }
+        }
+        if eof {
+            decoder.flush(&mut output);
         }
 
         if output.is_empty() {

@@ -43,6 +43,17 @@ mod command_words;
 mod compound_exec;
 mod history_exec;
 pub(crate) mod substitution_metadata;
+
+/// Decode raw input bytes (script source read from stdin, command output,
+/// embedded data) into rubash shell text. Invalid UTF-8 bytes are preserved
+/// as raw-byte marker code points so lexer/executor paths round-trip them
+/// byte-exactly instead of Latin-1 widening them with `byte as char`.
+/// Embedders feeding bytes from `Read` sources should use this rather than
+/// `String::from_utf8_lossy`, which would corrupt non-UTF-8 input.
+pub fn bytes_to_shell_text(bytes: &[u8]) -> String {
+    substitution_metadata::bytes_to_shell_text(bytes)
+}
+
 use command_words::raw_word_has_unquoted_parameter_expansion;
 use compound_exec::*;
 mod declare_local;

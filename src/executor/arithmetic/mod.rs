@@ -664,33 +664,26 @@ fn rest_assignment_operator_len(chars: &std::iter::Peekable<std::str::Chars>) ->
 /// report `operand expected` for `$(( '1' ))` exactly like Bash.
 pub(super) fn strip_arith_double_quotes(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
-    let bytes = input.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        let ch = bytes[index];
-        if ch != b'"' {
-            output.push(ch as char);
-            index += 1;
+    // Walk `chars` rather than `as_bytes`: `byte as char` would Latin-1-encode
+    // multibyte operand text (e.g. `$((中))` diagnostics print `ä¸­`).
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '"' {
+            output.push(ch);
             continue;
         }
-        index += 1;
-        while index < bytes.len() {
-            let next = bytes[index];
-            if next == b'"' {
-                index += 1;
+        while let Some(next) = chars.next() {
+            if next == '"' {
                 break;
             }
-            if next == b'\\' {
-                index += 1;
-                if index < bytes.len() {
-                    output.push(bytes[index] as char);
-                    index += 1;
+            if next == '\\' {
+                if let Some(inner) = chars.next() {
+                    output.push(inner);
                 } else {
                     output.push('\\');
                 }
             } else {
-                output.push(next as char);
-                index += 1;
+                output.push(next);
             }
         }
     }

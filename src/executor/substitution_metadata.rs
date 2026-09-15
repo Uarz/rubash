@@ -409,8 +409,13 @@ pub(in crate::executor) fn split_expanded_fragments(
         .bytes()
         .filter(|byte| !byte.is_ascii_whitespace())
         .collect();
+    // Field text accumulates as raw bytes and materializes through
+    // bytes_to_shell_text at each boundary: fragment bytes are payload data
+    // (substitution output may hold non-UTF-8 bytes), so widening each byte
+    // with `byte as char` would Latin-1-encode multibyte literal text into
+    // mojibake (niubash#92: "中文$(echo h)"$(echo x) printed ä¸­æ–‡hx).
     let mut fields = Vec::new();
-    let mut current = String::new();
+    let mut current: Vec<u8> = Vec::new();
     let mut saw_unquoted = false;
     let mut pending_non_whitespace = false;
     for fragment in fragments {
@@ -418,26 +423,27 @@ pub(in crate::executor) fn split_expanded_fragments(
             let is_ifs = ifs.as_bytes().contains(byte);
             if fragment.splittable && !fragment.quoted && is_ifs {
                 saw_unquoted = true;
-                if non_whitespace.contains(byte) {
-                    fields.push(std::mem::take(&mut current));
-                    pending_non_whitespace = true;
-                } else if !current.is_empty() {
-                    fields.push(std::mem::take(&mut current));
-                    pending_non_whitespace = false;
+                if non_whitespace.contains(byte) || !current.is_empty() {
+                    fields.push(bytes_to_shell_text(std::mem::take(&mut current).as_slice()));
+                    pending_non_whitespace = non_whitespace.contains(byte);
                 }
                 continue;
             }
-            if !fragment.quoted && whitespace.contains(byte) {
+            // IFS whitespace inside non-splittable (literal) fragments is
+            // data, not a delimiter: only real expansion output is subject
+            // to field splitting, so quoted literal text like "a b" must
+            // keep its space (niubash#92 fragment path).
+            if fragment.splittable && !fragment.quoted && whitespace.contains(byte) {
                 continue;
             }
             if pending_non_whitespace && current.is_empty() {
                 pending_non_whitespace = false;
             }
-            current.push(*byte as char);
+            current.push(*byte);
         }
     }
     if !current.is_empty() || !saw_unquoted {
-        fields.push(current);
+        fields.push(bytes_to_shell_text(current.as_slice()));
     }
     fields
 }
@@ -989,6 +995,39 @@ mod tests {
         assert_eq!(
             split_expanded_fragments(&fragments, Some(":"), SubstitutionSplitPolicy::Split),
             vec!["a::b:"],
+        );
+    }
+
+    #[test]
+    fn split_keeps_multibyte_literal_bytes_without_mojibake() {
+        // niubash#92 fragment path: `"中文$(echo h)"$(echo x)` expands a
+        // quoted literal + two substitution outputs under Split policy.
+        // Field materialization must UTF-8 decode bytes, not widen each
+        // byte with `byte as char` (which printed ä¸­æ–‡hx).
+        let fragments = [
+            ExpandedFragment::literal("中文", false),
+            ExpandedFragment::expanded("h", false),
+            ExpandedFragment::expanded("x", false),
+        ];
+        assert_eq!(
+            split_expanded_fragments(&fragments, Some(" \t\n"), SubstitutionSplitPolicy::Split),
+            vec!["中文hx"]
+        );
+    }
+
+    #[test]
+    fn split_preserves_ifs_whitespace_inside_literal_fragments() {
+        // Literal (non-splittable) fragment text is data: the space inside
+        // `"a b$(echo h)"` is quoted source text and survives field
+        // splitting even though the word as a whole is split-eligible.
+        let fragments = [
+            ExpandedFragment::literal("a b", false),
+            ExpandedFragment::expanded("h", false),
+            ExpandedFragment::expanded("x", false),
+        ];
+        assert_eq!(
+            split_expanded_fragments(&fragments, Some(" \t\n"), SubstitutionSplitPolicy::Split),
+            vec!["a bhx"]
         );
     }
 
