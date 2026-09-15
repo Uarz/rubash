@@ -13,6 +13,7 @@ use super::{
     EXECUTION_SUCCESS, INTEGER_VARS, NAMEREF_VARS, READONLY_VARS,
 };
 use crate::executor::arithmetic::eval_conditional_arith_value;
+use crate::executor::types::ARRAY_FIELD_SPLIT_MARKER;
 
 pub(super) fn assign_declare_names<W>(
     command_name: &str,
@@ -376,8 +377,15 @@ fn expand_compound_array_value(value: &str, variables: &HashMap<String, String>)
     let mut remaining = &inner[..];
 
     while let Some(dollar_pos) = remaining.find("${") {
-        // Append everything before ${
-        result.push_str(&remaining[..dollar_pos]);
+        // GNU arrayfunc.c:581 parse_string_to_word_list re-parses the
+        // compound value, then expand_words_no_vars (arrayfunc.c:610)
+        // expands each word. "${d[@]}" in double quotes produces multiple
+        // W_QUOTED words (one per element), while "${d[*]}" produces one.
+        // Strip surrounding double quotes when ${d[@]} expands to multiple
+        // elements so append_array_value sees them as separate words.
+        let prefix = &remaining[..dollar_pos];
+        let strip_closing_dq = prefix.ends_with('"');
+
         let expr_start = dollar_pos;
 
         // Find the matching closing brace
@@ -398,8 +406,20 @@ fn expand_compound_array_value(value: &str, variables: &HashMap<String, String>)
 
         // Try to expand as array parameter
         if let Some(expanded) = expand_array_parameter(expr, variables) {
+            // If the expansion produced \x10-tagged elements (i.e. ${d[@]}),
+            // strip the surrounding double quotes so the elements are
+            // separate words (GNU: "${d[@]}" -> multiple words).
+            if expanded.starts_with(ARRAY_FIELD_SPLIT_MARKER) && strip_closing_dq {
+                result.push_str(&prefix[..prefix.len() - 1]);
+            } else {
+                result.push_str(prefix);
+            }
+            if expanded.starts_with(ARRAY_FIELD_SPLIT_MARKER) && remaining.starts_with('"') {
+                remaining = &remaining[1..];
+            }
             result.push_str(&expanded);
         } else {
+            result.push_str(prefix);
             result.push_str(expr);
         }
     }
@@ -420,15 +440,17 @@ fn expand_compound_array_value(value: &str, variables: &HashMap<String, String>)
 }
 
 /// Expand `${var[@]}` or `${var[*]}` using the variables HashMap.
-/// Returns a space-separated list of quoted array elements.
+/// For `[@]`, returns \x10-tagged elements (one per array member, matching
+/// GNU's multi-word expansion of "${d[@]}" in double quotes).
+/// For `[*]`, returns a single quoted element (all members joined).
 fn expand_array_parameter(expr: &str, variables: &HashMap<String, String>) -> Option<String> {
     let inner = expr.strip_prefix("${")?.strip_suffix("}")?;
 
     // Look for [@] or [*] suffix
-    let name = if let Some(at) = inner.rfind("[@]") {
-        &inner[..at]
+    let (name, is_at) = if let Some(at) = inner.rfind("[@]") {
+        (&inner[..at], true)
     } else if let Some(star) = inner.rfind("[*]") {
-        &inner[..star]
+        (&inner[..star], false)
     } else {
         return None;
     };
@@ -439,12 +461,27 @@ fn expand_array_parameter(expr: &str, variables: &HashMap<String, String>) -> Op
     // Parse the array elements
     let entries = indexed_array_entries(array_value);
 
-    // Format the expanded elements as a space-separated list with quotes
-    // (append_array_value expects this format for parse_array_tokens)
-    let elements: Vec<String> = entries
-        .values()
-        .map(|v| format!("'{}'", v.replace('\'', "\\'")))
-        .collect();
-
-    Some(elements.join(" "))
+    // Format the expanded elements. For [@], each element is a separate
+    // word tagged with ARRAY_FIELD_SPLIT_MARKER so append_array_value treats
+    // them as distinct elements (GNU: "${d[@]}" -> N words). For [*], all
+    // elements are joined into one quoted word (GNU: "${d[*]}" -> 1 word).
+    if is_at {
+        let elements: Vec<String> = entries
+            .values()
+            .map(|v| {
+                format!(
+                    "{ARRAY_FIELD_SPLIT_MARKER}'{}'",
+                    v.replace('\'', "\\'")
+                )
+            })
+            .collect();
+        Some(elements.join(" "))
+    } else {
+        let joined = entries
+            .values()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" ");
+        Some(format!("'{}'", joined.replace('\'', "\\'")))
+    }
 }
