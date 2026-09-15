@@ -372,8 +372,17 @@ fn expand_compound_array_value(value: &str, variables: &HashMap<String, String>)
         .and_then(|v| v.strip_suffix(')'))
         .unwrap_or(value);
 
+    // GNU arrayfunc.c:557 expand_compound_array_assignment: the assignment
+    // expansion pass (subst.c) may have already field-split an unquoted
+    // parameter and tagged each field with ARRAY_FIELD_SPLIT_MARKER (\x10)
+    // plus quote_array_value quoting. Strip the marker and let
+    // append_array_value's unquote_storage_value remove the quotes, so
+    // `declare -a arr=($a)` with a="a b c" stores [0]="a" [1]="b" [2]="c"
+    // instead of [0]=$'\020"a"'.
+    let inner = inner.replace('\x10', "");
+
     let mut result = String::from("(");
-    let mut remaining = inner;
+    let mut remaining = &inner[..];
 
     while let Some(dollar_pos) = remaining.find("${") {
         // Append everything before ${
