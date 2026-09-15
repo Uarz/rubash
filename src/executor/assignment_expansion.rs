@@ -944,10 +944,11 @@ impl Executor {
     ) -> Option<String> {
         let inner = value.strip_prefix('(')?.strip_suffix(')')?.trim();
         let unquoted_inner = strip_matching_quotes(inner);
-        let parameter = if unquoted_inner == inner {
-            inner
-        } else {
+        let is_quoted = unquoted_inner != inner;
+        let parameter = if is_quoted {
             &unquoted_inner
+        } else {
+            inner
         };
         let value = if let Some(name) = single_unquoted_parameter_name(parameter) {
             self.shell_variable_value(name).unwrap_or_default()
@@ -960,6 +961,14 @@ impl Executor {
         } else {
             return None;
         };
+        // GNU expand_compound_array_assignment: parse_string_to_word_list
+        // sets W_QUOTED on a quoted word ("$value"), and shell_expand_word_list
+        // does not field-split W_QUOTED words. A quoted parameter in a
+        // compound assignment stays one element (array19.sub:
+        // declare -a var=("$value") stores [0]="a b c", not 3 elements).
+        if is_quoted {
+            return Some(format!("({})", quote_compound_field_value(&value)));
+        }
         let values =
             field_split_values_with_ifs(&value, self.env_vars.get("IFS").map(String::as_str))
                 .into_iter()
