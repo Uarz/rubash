@@ -966,8 +966,17 @@ impl Executor {
         // does not field-split W_QUOTED words. A quoted parameter in a
         // compound assignment stays one element (array19.sub:
         // declare -a var=("$value") stores [0]="a b c", not 3 elements).
+        // The word also lacks W_ASSIGNMENT (only the parser sets it), so
+        // assign_compound_array_list (arrayfunc.c:753) does NOT check
+        // [subscript]=value form. Tag with ARRAY_FIELD_SPLIT_MARKER so
+        // append_array_value skips the subscript detection (otherwise
+        // "[$(echo total 0)]=1 [2]=2]" from a variable value would be
+        // misparsed as a subscript assignment and the $(...) re-executed).
         if is_quoted {
-            return Some(format!("({})", quote_compound_field_value(&value)));
+            return Some(format!(
+                "({ARRAY_FIELD_SPLIT_MARKER}{})",
+                quote_compound_field_value(&value)
+            ));
         }
         let values =
             field_split_values_with_ifs(&value, self.env_vars.get("IFS").map(String::as_str))
