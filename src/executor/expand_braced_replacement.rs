@@ -21,8 +21,6 @@ impl Executor {
         &self,
         name: &str,
     ) -> Option<String> {
-        std::fs::write("D:/repo/rubash/debug-repl.txt",
-            format!("expand_braced_replacement_parameter: name={name}\n")).ok();
         let (var_name, pattern, replacement, global) = parse_parameter_replacement(name)?;
         // GNU subst.c match_upattern applies FNMATCH_IGNCASE when nocasematch
         // is set, so pattern substitution honors the shopt (bash 4.3+).

@@ -158,6 +158,26 @@ impl Executor {
                         escaped = false;
                         continue;
                     }
+                    // \x11 is a glob-marker introduced by
+                    // decode_parameter_pattern_quotes (via
+                    // push_quoted_pattern_char) to mark literal glob
+                    // metacharacters that were inside quotes.  When the
+                    // pattern contains a backtick command substitution,
+                    // decode_parameter_pattern_quotes does not recognise
+                    // the backtick structure and may collapse `\\` inside
+                    // double quotes to `\x11\` (a single literal backslash
+                    // with a glob marker).  Without this guard the `\`
+                    // is treated as an escape for the closing backtick,
+                    // consuming it and leaving the substitution unclosed.
+                    // Push both the marker and the next character as
+                    // literal data so the closing backtick is recognised.
+                    if source_ch == '\x11' {
+                        source.push(source_ch);
+                        if let Some(next) = chars.next() {
+                            source.push(next);
+                        }
+                        continue;
+                    }
                     if source_ch == '\\' {
                         escaped = true;
                         continue;
@@ -466,6 +486,13 @@ impl Executor {
             .replace(PROTECTED_ESCAPED_SINGLE_QUOTE, "\x17")
             .replace(PROTECTED_LITERAL_BACKSLASH, "\x14")
             .replace(PROTECTED_LITERAL_DOLLAR, "$")
+            // Decode protected backslash from command substitution output.
+            // protect_command_substitution_output converts `\` to `\x15`;
+            // expand_embedded_parameters_inner does not decode it, so it
+            // survives expansion.  In a pattern context the `\x15` must be
+            // restored to `\` so the pattern matcher sees a literal
+            // backslash (comsub2.sub: `${qpath//"`printf '%s' \\`"/}`).
+            .replace('\x15', "\\")
     }
 }
 

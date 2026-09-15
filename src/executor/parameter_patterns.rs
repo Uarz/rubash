@@ -96,17 +96,18 @@ impl Executor {
         pattern: &str,
         operation: PatternRemoval,
     ) -> Option<String> {
+        eprintln!("DEBUG expand_parameter_pattern_removal: var_name={var_name:?} pattern={pattern:?}");
         let pattern = self.expand_parameter_pattern_word(pattern);
         if matches!(var_name, "@" | "*") {
-            return Some(
-                self.positional_params
-                    .iter()
-                    .map(|value| {
-                        remove_parameter_pattern(value, &pattern, operation, self.extglob_enabled())
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            );
+            let result = self.positional_params
+                .iter()
+                .map(|value| {
+                    remove_parameter_pattern(value, &pattern, operation, self.extglob_enabled())
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            eprintln!("DEBUG expand_parameter_pattern_removal: @/* result={result:?}");
+            return Some(result);
         }
 
         if is_special_parameter_name(var_name) {
@@ -250,6 +251,18 @@ impl Executor {
         }
         masked.push_str(rest);
 
+        // GNU subst.c: an escaped anchor char `\%` or `\#` in a pattern
+        // substitution pattern is a literal character, not a suffix/prefix
+        // anchor. `decode_parameter_pattern_quotes` strips the backslash and
+        // leaves a bare `%`/`#` which `replace_parameter_pattern` would
+        // misinterpret as an anchor (subst.c parameter_brace_patsub:9451-
+        // 9465). Mark the escaped anchor with \x11 so the backslash survives
+        // as a glob escape (`\%`) after the final `.replace('\x11', "\\")`,
+        // routing through the glob matcher for a literal match instead of
+        // the anchor fast path. Only mark backslashes that are not
+        // themselves escaped (`\\%` keeps `\\` for the decoder).
+        let masked = mark_escaped_pattern_anchors(&masked);
+
         let decoded = decode_parameter_pattern_quotes(&masked).replace('\x1b', "");
 
         let mut restored = String::with_capacity(decoded.len());
@@ -379,4 +392,39 @@ impl Executor {
         mark_env_name(&mut self.env_vars, ARRAY_VARS, array_name);
         true
     }
+}
+
+/// Replace `\%` with `\x11%` and `\#` with `\x11#` for backslashes that are
+/// not themselves escaped, so the escape survives `decode_parameter_pattern_quotes`
+/// and the final `\x11 → \\` restoration produces `\%`/`\#` (a glob literal)
+/// instead of a bare `%`/`#` (which `replace_parameter_pattern` would treat
+/// as a suffix/prefix anchor).
+fn mark_escaped_pattern_anchors(pattern: &str) -> String {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut output = String::with_capacity(pattern.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '\\' && i + 1 < chars.len() {
+            match chars[i + 1] {
+                '\\' => {
+                    output.push('\\');
+                    output.push('\\');
+                    i += 2;
+                }
+                '%' | '#' => {
+                    output.push('\x11');
+                    output.push(chars[i + 1]);
+                    i += 2;
+                }
+                _ => {
+                    output.push(chars[i]);
+                    i += 1;
+                }
+            }
+        } else {
+            output.push(chars[i]);
+            i += 1;
+        }
+    }
+    output
 }
