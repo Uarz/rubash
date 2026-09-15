@@ -194,17 +194,26 @@ mod tests {
     fn logical_mode_resolves_pwd_against_executor_shell_root() {
         let root = env::temp_dir().join("rubash-pwd-logical-root");
         let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(root.join("tmp")).unwrap();
+        std::fs::create_dir_all(root.join("etc")).unwrap();
 
         let mut env_vars = HashMap::new();
-        env_vars.insert("PWD".to_string(), "/tmp".to_string());
+        env_vars.insert("PWD".to_string(), "/etc".to_string());
         env_vars.insert(
             "WINUXSH_ROOT".to_string(),
             root.to_string_lossy().to_string(),
         );
 
         assert_eq!(
-            logical_pwd_if_current(&root.join("tmp"), &env_vars),
+            logical_pwd_if_current(&root.join("etc"), &env_vars),
+            Some("/etc".to_string())
+        );
+
+        // /tmp is the per-user temp namespace even with a shell root set
+        // (unixwin/niubash#94): with no TMPDIR it resolves to the process
+        // temp dir, so a PWD of /tmp stays logical from there.
+        env_vars.insert("PWD".to_string(), "/tmp".to_string());
+        assert_eq!(
+            logical_pwd_if_current(&env::temp_dir(), &env_vars),
             Some("/tmp".to_string())
         );
 

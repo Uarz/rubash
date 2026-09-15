@@ -8,7 +8,16 @@ impl Executor {
     ) -> Option<(String, i32)> {
         match words.first().map(String::as_str)? {
             "sort" => {
-                let unique = words[1..].iter().any(|word| self.expand_word(word) == "-u");
+                // Only bare `sort` and `sort -u` are represented inline; any
+                // other flag (`-r`, `-n`, ...) or a file operand must run the
+                // real sort instead of being silently ignored.
+                let mut unique = false;
+                for word in &words[1..] {
+                    match self.expand_word(word).as_str() {
+                        "-u" => unique = true,
+                        _ => return None,
+                    }
+                }
                 let mut lines = input.lines().map(str::to_string).collect::<Vec<_>>();
                 lines.sort();
                 if unique {
@@ -64,11 +73,29 @@ impl Executor {
                     .iter()
                     .map(|word| self.expand_word(word))
                     .collect::<Vec<_>>();
+                // Byte mode has no line-count representation; the real head
+                // must run instead of silently emitting whole lines.
+                if args.iter().any(|a| a == "-c" || a == "--bytes") {
+                    return None;
+                }
                 let count = crate::executor::pipeline_exec::head_line_count(&args).unwrap_or(10);
                 Some((input.split_inclusive('\n').take(count).collect(), 0))
             }
             "grep" => {
-                let pattern = words.get(1).map(|word| self.expand_word(word))?;
+                // The inline fast path only represents the exact two-word
+                // form `grep PATTERN`. Flags (`-c`, `-n`, ...), `--`, and
+                // file operands change semantics this arm cannot model, and
+                // treating them as the pattern produced silently empty or
+                // wrong captures; fall back to the real parser, which runs
+                // the actual grep (its stderr is not swallowed there).
+                if words.len() != 2 {
+                    return None;
+                }
+                let raw_pattern = words[1].as_str();
+                if raw_pattern.starts_with('-') && raw_pattern.len() > 1 {
+                    return None;
+                }
+                let pattern = self.expand_word(raw_pattern);
                 let mut output = String::new();
                 let mut matched = false;
                 for line in input.split_inclusive('\n') {
@@ -97,12 +124,23 @@ impl Executor {
                     .iter()
                     .map(|word| self.expand_word(word))
                     .collect::<Vec<_>>();
+                // Byte mode has no line-count representation; the real tail
+                // must run instead of silently emitting whole lines.
+                if args.iter().any(|a| a == "-c" || a == "--bytes") {
+                    return None;
+                }
                 let count = crate::executor::pipeline_exec::head_line_count(&args).unwrap_or(10);
                 let lines = input.split_inclusive('\n').collect::<Vec<_>>();
                 let start = lines.len().saturating_sub(count);
                 Some((lines[start..].concat(), 0))
             }
             "uniq" => {
+                // No uniq flags (`-d`, `-u`, `-c`, ...) or operands are
+                // represented inline; anything beyond bare `uniq` must run
+                // the real uniq rather than silently ignoring the flag.
+                if words.len() != 1 {
+                    return None;
+                }
                 let mut output = String::new();
                 let mut previous = None;
                 for line in input.split_inclusive('\n') {

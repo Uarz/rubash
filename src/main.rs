@@ -1502,19 +1502,26 @@ fn read_unbuffered_line(output: &mut String) -> io::Result<usize> {
     // shell script can inherit unread bytes from the same redirected stdin.
     let mut stdin = io::stdin().lock();
     let mut bytes = [0_u8; 1];
+    // Accumulate raw bytes and decode once per line: `byte as char` would
+    // Latin-1-encode multibyte script source (e.g. a `中文` literal became
+    // `ä¸­æ–‡`). `bytes_to_shell_text` keeps valid UTF-8 and preserves
+    // undecodable bytes as raw-byte markers. A `b'\n'` can never sit inside
+    // a UTF-8 sequence, so the line split is char-boundary safe.
+    let mut line: Vec<u8> = Vec::new();
     let mut read = 0;
     loop {
         match stdin.read(&mut bytes)? {
             0 => break,
             count => {
                 read += count;
-                output.push(bytes[0] as char);
+                line.push(bytes[0]);
                 if bytes[0] == b'\n' {
                     break;
                 }
             }
         }
     }
+    output.push_str(&rubash::executor::bytes_to_shell_text(&line));
     Ok(read)
 }
 

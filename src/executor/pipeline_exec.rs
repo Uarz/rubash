@@ -1347,7 +1347,13 @@ impl Executor {
                 let mut cursor = 0;
                 while cursor < args.len() {
                     let arg = args[cursor].as_str();
-                    if matches!(arg, "-n" | "-c" | "-b") {
+                    if arg == "-c" || arg == "--bytes" {
+                        // Byte mode has no line-count representation; the
+                        // real head must run instead of silently emitting
+                        // whole lines.
+                        return self.execute_external_pipeline_stage(command, input);
+                    }
+                    if matches!(arg, "-n" | "-b") {
                         cursor += 2;
                         continue;
                     }

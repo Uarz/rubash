@@ -369,10 +369,12 @@ fn remove_double_quoted_into(
                             '$' => out.push('\x1f'),
                             '`' => out.push('\x1a'),
                             '\\' => out.push('\x14'),
-                            // `\"` inside double quotes must survive as data:
-                            // the expansion walker treats bare `"` as a quote
-                            // delimiter, so emit the data-double-quote marker
-                            // (\x18) that the walker restores to `"`.
+                            // A de-escaped `"` must travel as the walker's
+                            // data-double-quote marker (same as `\"` outside
+                            // quotes): downstream expansion scanners toggle
+                            // quote state on a bare quote and would swallow
+                            // it (`echo "a\"b"` printed `ab`, bash prints
+                            // `a"b`).
                             '"' => out.push('\x18'),
                             _ => out.push(escaped),
                         }
