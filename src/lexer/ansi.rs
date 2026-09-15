@@ -13,9 +13,15 @@ fn is_assignment_carrier_byte(byte: u32) -> bool {
     // expansion; U+001C is the protected-whitespace / alternate-word
     // marker. Both must be tagged so the expansion walker treats them as
     // data, not markers (exp1.sub $'\c\\\001' and $'\034').
+    // U+001D is the array-storage sentinel (declare/storage.rs, arrays/storage.rs);
+    // a decoded \c] (0x1d) must be tagged so it is not misinterpreted as an
+    // array marker prefix (nquote5.sub $'\c[\c\\\c]\c^\c_\c?').
+    // U+001B is the quoted-tilde marker prefix (lexer/word.rs);
+    // a decoded \c[ (0x1b, ESC) must be tagged so it is not misinterpreted
+    // as a tilde marker (nquote5.sub $'\c[').
     matches!(
         byte,
-        0x0c | 0x11 | 0x13 | 0x14 | 0x16 | 0x17 | 0x18 | 0x1a | 0x1c | 0x1f
+        0x0c | 0x11 | 0x13 | 0x14 | 0x16 | 0x17 | 0x18 | 0x1a | 0x1b | 0x1c | 0x1d | 0x1f
     )
 }
 
