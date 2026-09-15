@@ -636,7 +636,12 @@ impl Executor {
         // quotes intact so the element stays one field.
         for token_raw in split_storage_words(inner) {
             let token = unquote_storage_value(&token_raw);
-            if token.strip_prefix('\x1d') == Some("${@}") || token == "$@" {
+            // GNU subst.c string_list_dollar_at: "$@" expands to one word
+            // per positional parameter. The compound-assignment hoist
+            // delivers "$@" either as a bare `$@` (split-form path) or as
+            // \u{E102}$@\u{E102} (atomic lexer path, DQ_DATA markers).
+            let token_stripped = token.trim_matches('\u{E102}');
+            if token_stripped == "$@" || token.strip_prefix('\x1d') == Some("${@}") {
                 changed = true;
                 values.extend(self.positional_params.iter().map(|value| store!(value)));
             } else if let Some(array_name) = token
@@ -818,9 +823,61 @@ impl Executor {
                         }
                     }
                 }
-                values.push(store!(&token, token_raw));
+                values.push(token_raw.clone());
             } else {
-                values.push(store!(&token, token_raw));
+                // GNU expand_words_no_vars -> shell_expand_word_list expands
+                // simple $0, $1, ... $N positional parameters in compound
+                // assignment words (array.tests: ARGV=( [0]=$0 "$@" )).
+                // single_unquoted_parameter_name rejects digit names, so
+                // handle them here. The token may be `[N]=$0` (subscript
+                // form) or bare `$0`.
+                let core = token.trim_matches('\u{E102}');
+                let (prefix, param) = match core.split_once('=') {
+                    Some((p, v)) => (Some(p), v),
+                    None => (None, core),
+                };
+                if let Some(name) = param.strip_prefix('$') {
+                    if name.chars().all(|c| c.is_ascii_digit()) && !name.is_empty() {
+                        let expanded = if name == "0" {
+                            Some(self.script_name_value())
+                        } else if let Ok(index) = name.parse::<usize>() {
+                            self.positional_params.get(index.saturating_sub(1)).cloned()
+                        } else {
+                            None
+                        };
+                        if let Some(value) = expanded {
+                            changed = true;
+                            // Preserve [N]= subscript form without
+                            // quote_array_value wrapping so both indexed
+                            // and assoc storage recognize [key]=value.
+                            let stored = if let Some(p) = prefix {
+                                format!("{p}={value}")
+                            } else {
+                                value
+                            };
+                            values.push(stored);
+                            continue;
+                        }
+                    }
+                    // GNU expand_words_no_vars also expands dynamic
+                    // variables like $LINENO that shell_variable_value
+                    // does not cover. Only expand names that
+                    // dynamic_parameter_value knows about; ordinary
+                    // variables are left for
+                    // expand_unquoted_parameter_compound_assignment to
+                    // avoid breaking $(...) command substitution.
+                    if let Some(value) = self.dynamic_parameter_value(name) {
+                        changed = true;
+                        let stored = if let Some(p) = prefix {
+                            format!("{p}={value}")
+                        } else {
+                            value
+                        };
+                        values.push(stored);
+                        continue;
+                    }
+                }
+                values.push(token_raw.clone());
             }
         }
         changed.then(|| format!("({})", values.join(" ")))
