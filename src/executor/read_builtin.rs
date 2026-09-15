@@ -3,6 +3,26 @@ use super::*;
 const READ_USAGE: &str =
     "read: usage: read [-ers] [-a array] [-d delim] [-i text] [-n nchars] [-N nchars] [-p prompt] [-t timeout] [-u fd] [name ...]";
 
+/// GNU read.def:405: `read` accepts a name that is either a valid identifier
+/// or a valid array reference `name[subscript]` (array.tests:80 `read x[1]`).
+fn is_valid_read_name(name: &str) -> bool {
+    if is_shell_name(name) {
+        return true;
+    }
+    // GNU general.c valid_array_reference: name[non-empty-subscript]
+    // with a valid identifier base.
+    if let Some(open) = name.find('[') {
+        if name.ends_with(']') {
+            let base = &name[..open];
+            let subscript = &name[open + 1..name.len() - 1];
+            if !subscript.is_empty() && is_shell_name(base) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 impl Executor {
     pub(in crate::executor) fn execute_read(&mut self, cmd: &CommandNode) -> i32 {
         let mut stderr = Vec::new();
@@ -29,7 +49,7 @@ impl Executor {
                             index += 1;
                             continue;
                         }
-                        if is_shell_name(&cmd.words[index]) {
+                        if is_valid_read_name(&cmd.words[index]) {
                             scalar_names.push(cmd.words[index].clone());
                             scalar_field_count += 1;
                         } else {
@@ -1775,7 +1795,7 @@ impl Executor {
                     return self.finish_read_error(cmd, &stderr, 2);
                 }
                 word if !stop_scalar_names => {
-                    if is_shell_name(word) {
+                    if is_valid_read_name(word) {
                         scalar_names.push(word.to_string());
                         scalar_field_count += 1;
                     } else {

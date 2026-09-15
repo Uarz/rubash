@@ -272,8 +272,40 @@ impl Executor {
         // named a[0] (nameref23.sub).
         if let Some((elem_base, subscript)) = base_name.split_once('[') {
             if let Some(subscript) = subscript.strip_suffix(']') {
+                // GNU builtins/common.c:949 builtin_bind_variable: any valid
+                // array reference (name[subscript]) goes through
+                // assign_array_element -> find_or_make_array_variable,
+                // which creates the array on demand. This applies to `read
+                // x[1]` (read.def:1151 bind_read_variable) and direct
+                // `x[1]=value` assignments alike, even when the variable is
+                // not previously declared as an array (array.tests:80).
                 if is_marked_var(&self.env_vars, ARRAY_VARS, elem_base)
                     || is_marked_var(&self.env_vars, ASSOC_VARS, elem_base)
+                {
+                    if is_marked_var(&self.env_vars, "__RUBASH_READONLY_VARS", elem_base) {
+                        let line = format!(
+                            "{}{}: readonly variable\n",
+                            self.diagnostic_prefix(),
+                            elem_base
+                        );
+                        let _ = std::io::stderr().write_all(line.as_bytes());
+                        self.exit_code = 1;
+                        return false;
+                    }
+                    let integer = is_marked_var(&self.env_vars, INTEGER_VARS, base_name)
+                        || is_marked_var(&self.env_vars, INTEGER_VARS, elem_base);
+                    return self.apply_nameref_array_element_assignment(
+                        elem_base, subscript, &value, append, integer,
+                    );
+                }
+                // Variable not yet declared as an array: create it as an
+                // indexed array on demand (GNU find_or_make_array_variable
+                // at arrayfunc.c:453). Skip empty subscripts and [@]/[*]
+                // which are not valid for element assignment.
+                if !subscript.is_empty()
+                    && subscript != "@"
+                    && subscript != "*"
+                    && is_shell_name(elem_base)
                 {
                     if is_marked_var(&self.env_vars, "__RUBASH_READONLY_VARS", elem_base) {
                         let line = format!(
