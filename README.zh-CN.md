@@ -12,23 +12,24 @@
 
 Rubash 是用 Rust 从零实现的 GNU Bash —— 词法分析、解析器、展开引擎、执行器、内建命令，全部重写。目标是与 GNU Bash 5.3.0 逐字节兼容，原生运行在 Windows 上。
 
-**当前状态**：83 个 GNU Bash 上游测试套件中 32 个零差异通过。全部 83 套件总差异 2072 行，两天内从 3427 行下降 40%。完整详情见 [`docs/COMPATIBILITY-STATUS.md`](docs/COMPATIBILITY-STATUS.md)。
+**当前状态**：83 个 GNU Bash 上游测试套件中 41 个零差异通过。全部 83 套件总差异 1535 行，6 天内从 3427 行下降 55%。完整详情见 [`docs/COMPATIBILITY-STATUS.md`](docs/COMPATIBILITY-STATUS.md)。
 
 ## 兼容性一览
 
 ```
 GNU Bash 5.3.0 测试套件 — 83 个文件，true-baseline 实测
+（台账：2026-09-15 全量复核）
 
-  零差通过：     32 套件  ████████████████░░░░░░░░░░░░░░░░  39%
-  小差异(1-50)： 37 套件  █████████████████████████████████  45%
-  中差异(51-250)：14 套件 ████████████░░░░░░░░░░░░░░░░░░░░  17%
+  零差通过：     41 套件  ████████████████░░░░░░░░░░░░░░░░  49%
+  小差异(1-50)： 31 套件  ████████████░░░░░░░░░░░░░░░░░░░░  37%
+  中差异(51-250)：11 套件 ████░░░░░░░░░░░░░░░░░░░░░░░░░░░░  13%
   ────────────────────────────────────────────────────────────────
-  总差异：       2072 行（9月9日为 3427 行 → 两天内 −40%）
+  总差异：       1535 行（9月9日为 3427 行 → 6 天内 −55%）
 ```
 
 ### 完全通过的套件（零差异）
 
-`appendop` `attr` `builtins` `casemod` `complete` `cprint` `dbg-support` `dbg-support2` `dstack2` `dynvar` `extglob2` `extglob3` `func` `getopts` `glob-bracket` `herestr` `ifs` `invert` `invocation` `mapfile` `nquote2` `nquote3` `nquote4` `nquote5` `posixexp2` `posixpat` `precedence` `printf` `rsh` `strip` `tilde` `tilde2` `trap`
+`appendop` `arith-for` `attr` `builtins` `case` `casemod` `complete` `cprint` `dbg-support` `dbg-support2` `dstack` `dstack2` `dynvar` `exportfunc` `extglob2` `extglob3` `func` `getopts` `glob-bracket` `herestr` `ifs` `invert` `lastpipe` `mapfile` `nquote1` `nquote2` `nquote3` `nquote4` `nquote5` `parser` `posixexp2` `posixpat` `precedence` `printf` `quote` `rhs-exp` `rsh` `strip` `tilde` `tilde2` `trap`
 
 ### 近期重大修复（2026 年 9 月）
 
@@ -42,7 +43,7 @@ GNU Bash 5.3.0 测试套件 — 83 个文件，true-baseline 实测
 | **complete** | 115 → 0 | 多操作数 compspec 注册 |
 | **history** | 190 → 127 | `history -d start-end` 范围删除（GNU 5.3 特性） |
 | **globstar** | 182 → 101 | 多重性修复、相邻 `**` 折叠、尾斜杠语义 |
-| **array/assoc** | 444+358 → 246+242 | 复合赋值引号分组、元素赋值边界 |
+| **array/assoc** | 444+358 → 148+187 | 复合赋值引号分组、`"$@"`/`$0` 展开、算术下标副作用（`count++`） |
 | **信号表** | BSD 表 → Linux 表 | USR1=10、CHLD=17、RTMIN=34，与 GNU 5.3.0 WSL 契约一致 |
 
 ### Rubash 已经能跑什么
