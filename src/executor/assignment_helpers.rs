@@ -285,6 +285,9 @@ pub(in crate::executor) fn format_assoc_storage(entries: Vec<(String, String)>) 
 }
 
 pub(in crate::executor) fn quote_assoc_key(key: &str) -> String {
+    if super::arrays::ansic_shouldquote(key) {
+        return super::arrays::ansic_quote(key);
+    }
     if !key.is_empty()
         && !key
             .chars()

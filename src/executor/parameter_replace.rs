@@ -83,9 +83,12 @@ pub(in crate::executor) fn replace_parameter_pattern(
     }
 
     // A quoted backslash in a replacement pattern is a literal character,
-    // not a glob escape. The lexer may leave it as the internal quote marker;
-    // normalize it before matching the value.
-    let pattern = normalize_parameter_pattern_backslashes(pattern);
+    // not a glob escape. The pattern matcher (case_pattern_atom_matches)
+    // already handles \x18 as a literal backslash, so preserve it instead
+    // of converting to a real `\` which would be treated as a glob escape.
+    // Convert \x14 (another internal backslash marker) to \x18 so the
+    // matcher handles it uniformly.
+    let pattern = pattern.replace('\x14', "\x18");
     let pattern = pattern.as_str();
     let indices: Vec<usize> = value
         .char_indices()

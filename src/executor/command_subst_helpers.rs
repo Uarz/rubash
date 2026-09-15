@@ -5,7 +5,6 @@ pub(in crate::executor) fn collect_braced_parameter_name(
 ) -> String {
     let mut name = String::new();
     let mut nested = 0usize;
-    let mut in_bracket_expression = false;
     let mut single = false;
     let mut double = false;
     let mut ansi_c = false;
@@ -83,12 +82,10 @@ pub(in crate::executor) fn collect_braced_parameter_name(
             continue;
         }
         if ch == '[' {
-            in_bracket_expression = true;
             name.push(ch);
             continue;
         }
-        if ch == ']' && in_bracket_expression {
-            in_bracket_expression = false;
+        if ch == ']' {
             name.push(ch);
             continue;
         }
@@ -99,7 +96,7 @@ pub(in crate::executor) fn collect_braced_parameter_name(
             name.push('{');
             continue;
         }
-        if ch == '}' && !in_bracket_expression {
+        if ch == '}' {
             if nested == 0 {
                 break;
             }
@@ -318,9 +315,12 @@ mod tests {
     }
 
     #[test]
-    fn braced_parameter_collection_ignores_braces_in_pattern_classes() {
+    fn braced_parameter_collection_closes_at_first_brace_in_bracket_pattern() {
+        // GNU parse.y uses P_FIRSTCLOSE for ${...}: the first unquoted '}'
+        // closes the expression, even inside a bracket pattern. The
+        // remaining `]` is literal text outside the expansion.
         let mut chars = "o%[}]}]".chars().peekable();
-        assert_eq!(collect_braced_parameter_name(&mut chars), "o%[}]");
-        assert_eq!(chars.collect::<String>(), "]");
+        assert_eq!(collect_braced_parameter_name(&mut chars), "o%[");
+        assert_eq!(chars.collect::<String>(), "]}]");
     }
 }

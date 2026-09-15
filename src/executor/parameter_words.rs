@@ -376,7 +376,20 @@ impl Executor {
                     .map(|value| shell_safe_value(&value))
                     .unwrap_or_else(|| {
                         let word = self.tilde_expand_operator_word(word, context);
-                        self.expand_embedded_parameters_mut_with_context(&word, context)
+                        // GNU parameter_brace_expand_word sets
+                        // expand_no_split_dollar_star for op == '='
+                        // (subst.c:4487), which includes `:=`. This makes
+                        // unquoted $* with null IFS join with IFS[0] inside
+                        // the value (exp11.sub ${c=${*/}}).
+                        let old = super::expand_braced_replacement::ASSIGNMENT_RHS
+                            .with(|f| f.get());
+                        super::expand_braced_replacement::ASSIGNMENT_RHS
+                            .with(|f| f.set(true));
+                        let result =
+                            self.expand_embedded_parameters_mut_with_context(&word, context);
+                        super::expand_braced_replacement::ASSIGNMENT_RHS
+                            .with(|f| f.set(old));
+                        result
                     });
             }
         }
@@ -388,7 +401,20 @@ impl Executor {
                     .map(|value| shell_safe_value(&value))
                     .unwrap_or_else(|| {
                         let word = self.tilde_expand_operator_word(word, context);
-                        self.expand_embedded_parameters_mut_with_context(&word, context)
+                        // GNU parameter_brace_expand_word sets
+                        // expand_no_split_dollar_star for op == '='
+                        // (subst.c:4487). This makes unquoted $* with null
+                        // IFS join with IFS[0] inside the value
+                        // (exp11.sub ${c=${*/}}).
+                        let old = super::expand_braced_replacement::ASSIGNMENT_RHS
+                            .with(|f| f.get());
+                        super::expand_braced_replacement::ASSIGNMENT_RHS
+                            .with(|f| f.set(true));
+                        let result =
+                            self.expand_embedded_parameters_mut_with_context(&word, context);
+                        super::expand_braced_replacement::ASSIGNMENT_RHS
+                            .with(|f| f.set(old));
+                        result
                     });
             }
         }
@@ -491,6 +517,22 @@ impl Executor {
     /// `+`/`-` operator path), so `"${und="foo"}"` assigns `foo`
     /// (new-exp.tests:33).
     fn expand_assignment_alternate_mut(&mut self, value: &str, double_quoted: bool) -> String {
+        // GNU parameter_brace_expand_word sets expand_no_split_dollar_star
+        // for op == '=' (subst.c:4487), which includes `:=`. This makes
+        // unquoted $* with null IFS join with IFS[0] inside the value
+        // (exp11.sub ${c=${*/}}).
+        let old = super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.get());
+        super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.set(true));
+        let result = self.expand_assignment_alternate_mut_inner(value, double_quoted);
+        super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.set(old));
+        result
+    }
+
+    fn expand_assignment_alternate_mut_inner(
+        &mut self,
+        value: &str,
+        double_quoted: bool,
+    ) -> String {
         if !double_quoted {
             return self.expand_parameter_word_mut(value);
         }

@@ -1,8 +1,6 @@
 use super::*;
-use super::storage::quote_assoc_display_key;
 use crate::executor::{
-    assoc_hash_ordered_entries, assoc_hash_ordered_values, assoc_keys, DECLARED_UNSET_VARS,
-    NAMEREF_VARS,
+    assoc_hash_ordered_entries, assoc_hash_ordered_values, assoc_keys, NAMEREF_VARS,
 };
 
 impl Executor {
@@ -49,29 +47,26 @@ impl Executor {
         };
 
         let flags = self.variable_assignment_flags(name, true);
-        // GNU array_var_assignment (subst.c:8690-8691): a declared-unset
-        // (invisible) array that still has a value cell drops the `=()` body
-        // just like a missing cell. Rubash stores declared-unset arrays in
-        // env_vars with a marker, so check the marker here.
-        if is_marked_var(&self.env_vars, DECLARED_UNSET_VARS, name) {
-            return format!("declare -{flags} {name}");
-        }
         if is_marked_var(&self.env_vars, ASSOC_VARS, name) {
+            // A declared-but-unset associative array (no value cell, just an
+            // empty string from `declare -A name`) renders without `=()`
+            // (subst.c:8680 val == NULL). An actual empty array value from
+            // `declare -A name=()` renders `name=()`.
+            if !is_array_storage(value) {
+                return format!("declare -{flags} {name}");
+            }
             let entries = assoc_hash_ordered_entries(value);
             if entries.is_empty() {
-                // GNU array_var_assignment (subst.c:8693-8697): a set-but-empty
-                // array gets `=()` (val == 0 but var_isset); only invisible/unset
-                // arrays drop the body.
+                // GNU array_var_assignment (subst.c:8680): an existing array
+                // with an empty value renders `name=()` (new-exp15 `declare -A
+                // aarr=()` -> `${aarr[@]@A}` -> `declare -A aarr=()`). Only a
+                // declared-but-unset array (no value cell) drops the body.
                 return format!("declare -{flags} {name}=()");
             }
             let rendered = entries
                 .into_iter()
                 .map(|(key, value)| {
-                    format!(
-                        "[{}]={}",
-                        quote_assoc_display_key(&key),
-                        quote_array_value(&value)
-                    )
+                    format!("[{}]={}", quote_assoc_key(&key), quote_array_value(&value))
                 })
                 .collect::<Vec<_>>()
                 .join(" ");
@@ -79,16 +74,24 @@ impl Executor {
         }
 
         if is_marked_array_var(&self.env_vars, name) || is_array_storage(value) {
+            // A declared-but-unset indexed array (no value cell, just an
+            // empty string from `declare -a name`) renders without `=()`
+            // (subst.c:8680 val == NULL). An actual empty array value from
+            // `declare -a name=()` renders `name=()`.
+            if !is_array_storage(value) {
+                return format!("declare -{flags} {name}");
+            }
             let rendered = indexed_array_entries(value)
                 .into_iter()
                 .map(|(index, value)| format!("[{index}]={}", quote_array_value(&value)))
                 .collect::<Vec<_>>()
                 .join(" ");
             if rendered.is_empty() {
-                // GNU array_var_assignment (subst.c:8693-8697): a set-but-empty
-                // array gets `=()` (val == 0 but var_isset); only invisible/unset
-                // arrays drop the body (new-exp15 uses the scalar ${foo@A} form
-                // which goes through string_var_assignment, not this path).
+                // GNU array_var_assignment: an existing array with an empty
+                // value renders `name=()` (exp8.sub `array=( [$'x\001y\177z']
+                // =foo)` error -> `${array[@]@A}` -> `declare -a array=()`).
+                // Only a declared-but-unset array (no value cell) drops the
+                // body, handled by the `!is_array_storage` check above.
                 return format!("declare -{flags} {name}=()");
             }
             return format!("declare -{flags} {name}=({rendered})");

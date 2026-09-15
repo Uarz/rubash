@@ -8,6 +8,14 @@ const PATSUB_QUOTED_VALUE_END: char = '\x0c';
 const PATSUB_QUOTED_AMP: char = '\x0e';
 const PATSUB_QUOTED_BACKSLASH: char = '\x0f';
 
+// Mirrors GNU's expand_no_split_dollar_star (subst.c:237) for the `=`/`:=`
+// operator context: when set, unquoted `$*` with null IFS joins with IFS[0]
+// (string_list_dollar_star) instead of space (string_list_dollar_at).
+// parameter_brace_expand_word sets this for op == '=' (subst.c:4487).
+thread_local! {
+    pub(in crate::executor) static ASSIGNMENT_RHS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 impl Executor {
     pub(in crate::executor) fn expand_braced_replacement_parameter(
         &self,
@@ -29,12 +37,29 @@ impl Executor {
             return Some(value);
         }
         if matches!(var_name, "@" | "*") {
+            // GNU pos_params_pat_subst (subst.c:9322) calls
+            // string_list_pos_params with pchar from MATCH_STARSUB.
+            // string_list_pos_params (subst.c:3048) dispatches to
+            // string_list_dollar_star (join with IFS[0]) when
+            // expand_no_split_dollar_star is set and ifs_is_null, otherwise
+            // string_list_dollar_at (join with space). The `=`/`:=` operator
+            // sets expand_no_split_dollar_star (subst.c:4487), so inside
+            // `${c=${*/}}` with IFS= the join uses IFS[0] (empty), producing
+            // `12` instead of `1 2` (exp11.sub).
+            let separator = if var_name == "*"
+                && ASSIGNMENT_RHS.with(|flag| flag.get())
+                && self.env_vars.get("IFS").is_some_and(|ifs| ifs.is_empty())
+            {
+                String::new()
+            } else {
+                " ".to_string()
+            };
             return Some(
                 self.positional_params
                     .iter()
                     .map(|value| self.replace_patsub_pattern(value, &pattern, &replacement, global))
                     .collect::<Vec<_>>()
-                    .join(" "),
+                    .join(&separator),
             );
         }
         if let Ok(index) = var_name.parse::<usize>() {

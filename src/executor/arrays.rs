@@ -9,10 +9,11 @@ mod storage;
 
 pub(super) use mapfile::split_mapfile_input;
 pub(super) use storage::{
-    array_indices, array_value_at, array_values, format_indexed_array_storage,
-    format_indexed_array_values, indexed_array_entries, is_array_storage, is_marked_array_var,
-    normalize_array_expanded_value, parse_array_integer_subscript, parse_array_numeric_subscript,
-    parse_array_subscript, quote_array_value, resolve_indexed_array_subscript, store_indexed_array,
+    ansic_quote, ansic_shouldquote, array_indices, array_value_at, array_values,
+    format_indexed_array_storage, format_indexed_array_values, indexed_array_entries,
+    is_array_storage, is_marked_array_var, normalize_array_expanded_value,
+    parse_array_integer_subscript, parse_array_numeric_subscript, parse_array_subscript,
+    quote_array_value, resolve_indexed_array_subscript, store_indexed_array,
 };
 
 use std::collections::{BTreeMap, HashMap};

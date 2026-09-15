@@ -273,10 +273,16 @@ impl Executor {
         }
         restored.push_str(rest);
 
-        let expanded = self.expand_embedded_parameters_preserving_escaped_single_quotes(&restored);
+        // \x18 is the literal-backslash marker from decode_parameter_pattern_quotes,
+        // but expand_embedded_parameters_preserving_escaped_single_quotes treats \x18
+        // as a double-quote marker and converts it to `"`.  Protect it by mapping
+        // to \x14 (which the expander preserves as a literal backslash) and restore
+        // after expansion so the pattern matcher sees the correct marker.
+        let protected = restored.replace('\x18', "\x14");
+        let expanded = self.expand_embedded_parameters_preserving_escaped_single_quotes(&protected);
         // Quoted glob metacharacters remain pattern literals. Preserve the
         // escape for the parameter matcher instead of exposing a raw marker.
-        expanded.replace('\x11', "\\")
+        expanded.replace('\x11', "\\").replace('\x14', "\x18")
     }
 
     /// The key of an associative-array subscript, expanded through the one

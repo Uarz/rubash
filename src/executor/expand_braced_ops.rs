@@ -16,7 +16,14 @@ impl Executor {
                         .unwrap_or_default(),
                 );
             }
-            return Some(self.expand_parameter_word(word));
+            // GNU parameter_brace_expand_word sets expand_no_split_dollar_star
+            // for op == '=' (subst.c:4487), which includes `:=`. This makes
+            // unquoted $* with null IFS join with IFS[0] inside the value.
+            let old = super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.get());
+            super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.set(true));
+            let result = self.expand_parameter_word(word);
+            super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.set(old));
+            return Some(result);
         }
         if let Some((var_name, word)) = name.split_once(":-") {
             if self
@@ -65,11 +72,16 @@ impl Executor {
             }
         }
         if let Some((var_name, word)) = name.split_once('=') {
-            return Some(
-                self.parameter_operator_value(var_name)
-                    .map(|value| shell_safe_value(&value))
-                    .unwrap_or_else(|| self.expand_parameter_word(word)),
-            );
+            // GNU parameter_brace_expand_word sets expand_no_split_dollar_star
+            // for op == '=' (subst.c:4487). This makes unquoted $* with null
+            // IFS join with IFS[0] inside the value (exp11.sub ${c=${*/}}).
+            let old = super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.get());
+            super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.set(true));
+            let result = self.parameter_operator_value(var_name)
+                .map(|value| shell_safe_value(&value))
+                .unwrap_or_else(|| self.expand_parameter_word(word));
+            super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.set(old));
+            return Some(result);
         }
         if let Some((var_name, word)) = name.split_once('+') {
             if self.parameter_operator_value(var_name).is_some() {

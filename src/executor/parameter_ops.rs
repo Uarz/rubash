@@ -119,7 +119,6 @@ pub(in crate::executor) fn matching_parameter_brace_in_context(
     }
     let mut chars = input.char_indices().peekable();
     let mut depth = 0usize;
-    let mut in_bracket_expression = false;
     let mut single = false;
     let mut double = false;
     let mut saw_quote = false;
@@ -156,11 +155,9 @@ pub(in crate::executor) fn matching_parameter_brace_in_context(
             continue;
         }
         if ch == '[' && !single && !double {
-            in_bracket_expression = true;
             continue;
         }
-        if ch == ']' && in_bracket_expression && !single && !double {
-            in_bracket_expression = false;
+        if ch == ']' && !single && !double {
             continue;
         }
         if ch == '$' && chars.peek().is_some_and(|(_, ch)| *ch == '{') {
@@ -169,7 +166,6 @@ pub(in crate::executor) fn matching_parameter_brace_in_context(
             continue;
         }
         if ch == '}'
-            && (!in_bracket_expression || depth > 0)
             && (replacement_context || (!single && (!double || depth > 0 || !saw_quote)))
         {
             if depth == 0 {
@@ -553,8 +549,10 @@ mod tests {
     }
 
     #[test]
-    fn matching_parameter_brace_ignores_closing_brace_in_bracket_pattern() {
-        assert_eq!(matching_parameter_brace("o%[}]}"), Some(5));
+    fn matching_parameter_brace_closes_at_first_brace_in_bracket_pattern() {
+        // GNU parse.y P_FIRSTCLOSE: the first unquoted '}' closes, even
+        // inside a bracket pattern.  The remaining `]}` is literal text.
+        assert_eq!(matching_parameter_brace("o%[}]}"), Some(3));
     }
 
     #[test]

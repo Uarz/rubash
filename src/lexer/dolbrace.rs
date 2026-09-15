@@ -67,7 +67,6 @@ pub(crate) fn scan_braced_parameter(input: &str, options: BraceContext) -> Optio
     // pattern cannot keep an inner expansion's `}` from closing (e.g.
     // ${v%"${v#?}"}), and restore it when the inner expansion closes.
     let mut quote_stack: Vec<(bool, bool)> = Vec::new();
-    let mut bracket_depth = 0usize;
     let mut quote_events = Vec::new();
     while cursor < chars.len() {
         let (offset, ch) = chars[cursor];
@@ -113,7 +112,6 @@ pub(crate) fn scan_braced_parameter(input: &str, options: BraceContext) -> Optio
         }
         if ch == '}'
             && (options.replacement_context || (!single && !double))
-            && (bracket_depth == 0 || depth > 1)
         {
             depth -= 1;
             if depth == 0 {
@@ -153,13 +151,6 @@ pub(crate) fn scan_braced_parameter(input: &str, options: BraceContext) -> Optio
             });
             double = !double;
             continue;
-        }
-        if !single && !double {
-            if ch == '[' {
-                bracket_depth += 1;
-            } else if ch == ']' {
-                bracket_depth = bracket_depth.saturating_sub(1);
-            }
         }
         let operator = matches!(
             ch,
@@ -298,10 +289,13 @@ mod tests {
         assert_eq!(scan.end, input.len());
     }
     #[test]
-    fn ignores_braces_inside_bracket_patterns() {
+    fn closing_brace_inside_bracket_pattern_closes_expression() {
+        // GNU parse.y uses P_FIRSTCLOSE for ${...}: the first unquoted '}'
+        // closes the expression, even inside a bracket pattern. The
+        // remaining `]}` is literal text outside the expansion.
         let input = "${o%[}]}";
         let scan = scan_braced_parameter(input, PLAIN).unwrap();
-        assert_eq!(scan.end, input.len());
+        assert_eq!(scan.end, 6);
     }
 
     #[test]
