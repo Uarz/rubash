@@ -36,22 +36,19 @@ pub(in crate::executor) fn replace_parameter_pattern(
     }
 
     if pattern.is_empty() {
-        // GNU pat_subst:9197-9229: a null pattern anchored at the beginning
-        // prefixes REP, at the end appends REP, with `&` expanding to the
-        // empty match. Unanchored, MATCH_ANY matches the empty string
-        // everywhere; a global substitution inserts REP at every position
-        // and copies one character after each zero-length match
-        // (pat_subst:9286-9304).
-        if !global {
-            return format!("{}{value}", amp(""));
-        }
-        let mut output = String::new();
-        for (_, ch) in value.char_indices() {
-            output.push_str(&amp(""));
-            output.push(ch);
-        }
-        output.push_str(&amp(""));
-        return output;
+        // GNU pat_subst:9208-9229 handles a null pattern only when mtype is
+        // MATCH_BEG (prefix REP) or MATCH_END (append REP); those anchored
+        // cases are already handled above by replace_parameter_prefix/suffix.
+        // For the unanchored MATCH_ANY case the main loop (pat_subst:9238)
+        // calls match_pattern, whose match_upattern wraps the empty pattern
+        // as `**` for the strmatch pre-check, but the per-position scan
+        // (match_upattern:5397-5431) calls match_pattern_char with the
+        // original empty pattern. match_pattern_char (gm_loop.c:44-68)
+        // reads `*pat` as NUL, falls through to the `default` case, and
+        // compares FOLD(*string) == FOLD(0) which is always false for a
+        // non-empty string — so no position matches and the loop breaks
+        // immediately, returning the value unchanged.
+        return value.to_string();
     }
 
     // Bash's glob `*` also matches an empty parameter value. Handle this

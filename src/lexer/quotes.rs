@@ -592,18 +592,54 @@ pub(super) fn copy_braced_parameter_after_dollar(
     chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
     posix: bool,
 ) {
+    copy_braced_parameter_inner(out, chars, true, posix);
+}
+
+// Unquoted `${...}` units keep their body verbatim (GNU quote removal never
+// strips quotes inside a parameter expansion; the expansion stage owns the
+// quote state). Whole-word `${...}` tokens already bypass quote removal via
+// the lexer's Variable path; this gives embedded occurrences the same shape.
+fn copy_braced_parameter_unquoted(
+    out: &mut String,
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+) {
+    copy_braced_parameter_inner(out, chars, false, false);
+}
+
+/// Copy a `${...}` braced parameter verbatim for the expansion stage.
+///
+/// Normally `scan_braced_parameter` (dolbrace.rs) determines the span, but it
+/// does not recognize `$'...'` ANSI-C quoting inside `${...}`: it treats `'`
+/// as a regular single quote, so `\'` inside `$'\x5c\''` corrupts the brace
+/// scan and extends the parameter past its real closing `}` (nquote2.sub
+/// `${v/x/$'\x5c\''}`).  When the body contains `$'`, fall back to a local
+/// scan that handles ANSI-C quoting with the same `\'` escape tracking.
+fn copy_braced_parameter_inner(
+    out: &mut String,
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    outer_double_quote: bool,
+    posix: bool,
+) {
     out.push('$');
     if chars.peek() != Some(&'{') {
         return;
     }
     let remaining: String = chars.clone().collect();
+    // If the braced parameter body contains `$'` (ANSI-C quoting),
+    // scan_braced_parameter would mishandle it: it treats `'` as a regular
+    // single quote, so `\'` inside `$'\x5c\''` corrupts the brace scan and
+    // extends the parameter past its real closing `}` (nquote2.sub).  Use a
+    // local scan that tracks `\'` escapes inside `$'...'` instead.  Only
+    // check within the brace body (up to the first `}` at depth 0) so `$'`
+    // in later script text does not trigger the fallback.
+    if braced_body_contains_ansi_c(&remaining) {
+        copy_braced_parameter_with_ansi_c(out, chars, outer_double_quote, posix);
+        return;
+    }
     let mut wrapped = String::from("$");
     wrapped.push_str(&remaining);
     let context = BraceContext {
-        outer_double_quote: true,
-        // POSIX mode comes from the lexer: parse.y's matched-pair scan runs
-        // the Interp 221 big hammer there (single quotes inside the
-        // double-quoted span are literal, first `}` closes).
+        outer_double_quote,
         posix,
         replacement_context: false,
         initial_state: DolbraceState::Param,
@@ -617,6 +653,7 @@ pub(super) fn copy_braced_parameter_after_dollar(
         }
         return;
     }
+    // Fallback: copy character by character, tracking ${...} nesting.
     out.push(chars.next().unwrap());
     let mut depth = 1usize;
     while let Some(ch) = chars.next() {
@@ -636,47 +673,120 @@ pub(super) fn copy_braced_parameter_after_dollar(
     }
 }
 
-// Unquoted `${...}` units keep their body verbatim (GNU quote removal never
-// strips quotes inside a parameter expansion; the expansion stage owns the
-// quote state). Whole-word `${...}` tokens already bypass quote removal via
-// the lexer's Variable path; this gives embedded occurrences the same shape.
-fn copy_braced_parameter_unquoted(
+/// Check whether the body of a `${...}` braced parameter contains `$'`
+/// (ANSI-C quoting) before its real closing `}`.  Only scans up to the
+/// first `}` at depth 0 so `$'` in later script text does not trigger the
+/// fallback.
+fn braced_body_contains_ansi_c(remaining: &str) -> bool {
+    let chars: Vec<char> = remaining.chars().collect();
+    let mut index = 0usize;
+    if chars.first() != Some(&'{') {
+        return false;
+    }
+    index += 1;
+    let mut depth = 1usize;
+    let mut single = false;
+    let mut double = false;
+    while index < chars.len() {
+        let ch = chars[index];
+        if ch == '$' && index + 1 < chars.len() && chars[index + 1] == '\'' && !single && !double {
+            return true;
+        }
+        if ch == '\\' && !single && index + 1 < chars.len() {
+            index += 2;
+            continue;
+        }
+        if ch == '\'' && !double {
+            single = !single;
+            index += 1;
+            continue;
+        }
+        if ch == '"' && !single {
+            double = !double;
+            index += 1;
+            continue;
+        }
+        if ch == '$' && index + 1 < chars.len() && chars[index + 1] == '{' && !single && !double {
+            depth += 1;
+            index += 2;
+            continue;
+        }
+        if ch == '}' && !single && !double {
+            depth -= 1;
+            if depth == 0 {
+                return false;
+            }
+            index += 1;
+            continue;
+        }
+        index += 1;
+    }
+    false
+}
+
+/// Local `${...}` scanner that handles `$'...'` ANSI-C quoting inside the
+/// body.  Tracks `\'` escapes so the closing `'` of the ANSI-C string is not
+/// mistaken for a single-quote toggle, and the real closing `}` of the
+/// braced parameter is found (nquote2.sub).
+fn copy_braced_parameter_with_ansi_c(
     out: &mut String,
     chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    _outer_double_quote: bool,
+    _posix: bool,
 ) {
-    out.push('$');
-    if chars.peek() != Some(&'{') {
-        return;
-    }
-    let remaining: String = chars.clone().collect();
-    let mut wrapped = String::from("$");
-    wrapped.push_str(&remaining);
-    let context = BraceContext {
-        outer_double_quote: false,
-        posix: false,
-        replacement_context: false,
-        initial_state: DolbraceState::Param,
-    };
-    if let Some(scan) = scan_braced_parameter(&wrapped, context) {
-        let consumed = wrapped[..scan.end].chars().count().saturating_sub(1);
-        for _ in 0..consumed {
-            if let Some(ch) = chars.next() {
-                out.push(ch);
-            }
-        }
-        return;
-    }
-    out.push(chars.next().unwrap());
+    out.push(chars.next().unwrap()); // '{'
     let mut depth = 1usize;
+    let mut single = false;
+    let mut double = false;
     while let Some(ch) = chars.next() {
         out.push(ch);
-        if ch == '$' && chars.peek() == Some(&'{') {
+        // $'...' ANSI-C quoting: consume to the closing ' (handling \' escapes)
+        if ch == '$' && chars.peek() == Some(&'\'') && !single && !double {
+            chars.next();
+            out.push('\'');
+            let mut escaped = false;
+            for quoted_ch in chars.by_ref() {
+                out.push(quoted_ch);
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+                if quoted_ch == '\\' {
+                    escaped = true;
+                    continue;
+                }
+                if quoted_ch == '\'' {
+                    break;
+                }
+            }
+            continue;
+        }
+        // Backslash escaping (not in single quotes)
+        if ch == '\\' && !single {
+            if let Some(escaped) = chars.next() {
+                out.push(escaped);
+            }
+            continue;
+        }
+        // Single quote handling
+        if ch == '\'' && !double {
+            single = !single;
+            continue;
+        }
+        // Double quote handling
+        if ch == '"' && !single {
+            double = !double;
+            continue;
+        }
+        // Nested ${...}
+        if ch == '$' && chars.peek() == Some(&'{') && !single && !double {
             chars.next();
             out.push('{');
             depth += 1;
             continue;
         }
-        if ch == '}' {
+        // Closing brace
+        if ch == '}' && !single && !double {
             depth = depth.saturating_sub(1);
             if depth == 0 {
                 break;

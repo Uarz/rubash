@@ -32,6 +32,44 @@ impl Executor {
         tilde_expand::expand_assignment_tilde_value(&expanded, &self.env_vars, false)
     }
 
+    /// GNU subst.c pos_params (3745) + string_list_pos_params (3030):
+    /// `${*:offset:length}` selects a range of positional parameters and
+    /// joins them with IFS[0] (string_list_dollar_star, subst.c:2902),
+    /// while `${@:offset:length}` joins with a space (string_list). The
+    /// offset==0 case prepends $0 (dollar_vars[0]) per pos_params:3759.
+    /// expand_braced_substring_parameter always joins with a space, so
+    /// intercept `*`/`@` here to apply the correct separator.
+    fn expand_star_at_substring(
+        &self,
+        var_name: &str,
+        offset: isize,
+        length: Option<isize>,
+    ) -> String {
+        std::fs::write("D:/repo/rubash/debug-star.txt",
+            format!("expand_star_at_substring: var_name={var_name} offset={offset} length={length:?}\n")).ok();
+        let selected = if offset == 0 {
+            let mut params = Vec::with_capacity(self.positional_params.len() + 1);
+            params.push(self.script_name_value());
+            params.extend(self.positional_params.iter().cloned());
+            positional_parameter_substring(&params, 1, length)
+        } else {
+            positional_parameter_substring(&self.positional_params, offset, length)
+        };
+        if var_name == "*" {
+            let ifs = self
+                .env_vars
+                .get("IFS")
+                .cloned()
+                .unwrap_or_else(|| " \t\n".to_string());
+            match ifs.chars().next() {
+                Some(separator) => selected.join(&separator.to_string()),
+                None => selected.concat(),
+            }
+        } else {
+            selected.join(" ")
+        }
+    }
+
     pub(in crate::executor) fn expand_quoted_parameter_word(&self, word: &str) -> String {
         // TODO(subst.c/parse.y): Quoted parameter expansion should carry
         // CTLESC/CTLQUOTEMARK state from the parser. This preserves the
@@ -138,6 +176,9 @@ impl Executor {
                 let value = self.expand_parameter_named_value(var_name);
                 return parameter_substring(&value, offset, length);
             }
+            if matches!(var_name, "*" | "@") {
+                return self.expand_star_at_substring(var_name, offset, length);
+            }
             return self.expand_braced_substring_parameter(var_name, offset, length);
         }
 
@@ -230,6 +271,8 @@ impl Executor {
         word: &str,
         context: SubstitutionQuoteContext,
     ) -> String {
+        std::fs::write("D:/repo/rubash/debug-qpw.txt",
+            format!("expand_quoted_parameter_word_mut: word={word:?} context={context:?}\n")).ok();
         // Bash 5.3 (parser.h FUNSUB_CHAR): a whitespace-led `${ command; }` /
         // `${|command;}` word is a nofork command substitution, not a
         // parameter form. The operator split_once parsing below would treat
@@ -426,6 +469,9 @@ impl Executor {
             if is_special_parameter_name(var_name) || var_name.parse::<usize>().is_ok() {
                 let value = self.expand_parameter_named_value(var_name);
                 return parameter_substring(&value, offset, length);
+            }
+            if matches!(var_name, "*" | "@") {
+                return self.expand_star_at_substring(var_name, offset, length);
             }
             return self.expand_braced_substring_parameter(var_name, offset, length);
         }

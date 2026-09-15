@@ -110,6 +110,24 @@ pub(crate) fn scan_braced_parameter(input: &str, options: BraceContext) -> Optio
             };
             continue;
         }
+        // $'...' ANSI-C quoting: skip the entire string (handling \' escapes)
+        // so the closing ' is not mistaken for a single-quote toggle, which
+        // would prevent the real closing } from being found (nquote2.sub).
+        if ch == '$' && chars.get(cursor).is_some_and(|(_, next)| *next == '\'') && !single && !double {
+            cursor += 1; // skip the '
+            while cursor < chars.len() {
+                let (_, quoted_ch) = chars[cursor];
+                cursor += 1;
+                if quoted_ch == '\\' {
+                    cursor = cursor.saturating_add(1); // skip escaped char
+                    continue;
+                }
+                if quoted_ch == '\'' {
+                    break;
+                }
+            }
+            continue;
+        }
         if ch == '}'
             && (options.replacement_context || (!single && !double))
         {
