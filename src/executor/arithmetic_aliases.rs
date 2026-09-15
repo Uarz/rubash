@@ -120,10 +120,15 @@ impl Executor {
             .or_else(|| cmd.words.get(1).map(String::as_str))
             .unwrap_or_default();
         // GNU execute_cmd.c:3940-3945: if `set -x` is on, print `(( expr ))`
-        // before evaluating the arithmetic command.  Use the raw expression to
-        // preserve original whitespace.
-        let xtrace_expr = raw_expression.unwrap_or(expression);
-        self.xtrace_print_arith_cmd(xtrace_expr);
+        // before evaluating the arithmetic command.  Use the raw expression
+        // to preserve original whitespace on BOTH sides (GNU passes the
+        // verbatim between-parens text to xtrace_print_arith_cmd: `(( n ))`
+        // traces as `+ ((  n  ))`).
+        if let Some(raw) = raw_expression {
+            self.xtrace_print_arith_cmd_raw(raw);
+        } else {
+            self.xtrace_print_arith_cmd(expression);
+        }
         match self.eval_arithmetic_command_value(expression) {
             Some(0) => 1,
             Some(_) => 0,

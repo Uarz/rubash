@@ -197,7 +197,10 @@ impl Executor {
             }
             return Err(ExecuteError::ExitCode(status));
         }
-        if self.xtrace_enabled() {
+        if self.xtrace_enabled() && cmd.arithmetic_command.is_none() {
+            // Same arithmetic-command exclusion as execute_materialized_command:
+            // `(( ))` traces once via execute_arithmetic_command (GNU
+            // execute_cmd.c:3940), not through the generic simple-command path.
             let prefix = self.xtrace_prefix();
             let text = self.xtrace_command_text(cmd);
             eprintln!("{prefix}{text}");

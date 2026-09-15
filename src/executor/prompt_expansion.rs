@@ -417,6 +417,17 @@ impl Executor {
             eprintln!("{prefix}(( {} ))", expression.trim_start());
         }
     }
+
+    /// Same trace for plain `(( expr ))` commands (GNU execute_cmd.c:3940):
+    /// GNU prints the between-parens text untouched on both sides —
+    /// `(( n ))` traces as `+ ((  n  ))` — unlike the arith-for sections,
+    /// whose parsed word lists drop the leading blanks (xtrace above).
+    pub(in crate::executor) fn xtrace_print_arith_cmd_raw(&self, expression: &str) {
+        if self.xtrace_enabled() {
+            let prefix = self.xtrace_prefix();
+            eprintln!("{prefix}(( {} ))", expression);
+        }
+    }
 }
 
 fn prompt_release_version(env_vars: &HashMap<String, String>) -> String {
