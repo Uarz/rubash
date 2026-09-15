@@ -26,9 +26,17 @@ impl<'a> Lexer<'a> {
             // dollars/backticks as literal (restored on the way out).
             protect_fully_single_quoted_assignment(&raw)
         } else if is_assignment(&raw) && raw.contains("$(") {
-            // TODO(parse.y/subst.c): Preserve quotes inside `$()` while
-            // assignment-word quote removal is still token-local.
-            raw.to_string()
+            // GNU subst.c preserves quotes inside `$(...)` command
+            // substitutions during assignment-word quote removal.
+            // `remove_shell_quotes_with_posix` copies `$(...)` bodies
+            // verbatim via `copy_dollar_paren_substitution`, so quotes
+            // inside the substitution are preserved while backslash
+            // escapes outside it are converted to internal markers.
+            // Without this, `eval c=\$\'\\$(printf %o $a)\'` kept literal
+            // backslashes that the expansion walker treated as escaping
+            // the `$`, suppressing the command substitution (iquote.tests
+            // line 69).
+            remove_shell_quotes_with_posix(raw, self.posix)
         } else if raw.starts_with("$((") {
             // GNU keeps the text of a `$((...))` expansion verbatim at the
             // word level; the arithmetic stage applies its own double-quote

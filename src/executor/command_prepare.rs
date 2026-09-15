@@ -342,6 +342,14 @@ impl Executor {
                 !metadata.process_substitutions.is_empty()
                     || metadata.raw.contains("<(")
                     || metadata.raw.contains(">(")
+                    // GNU parse.y: an escaped `\<(...)` word is NOT a process
+                    // substitution, but after quote removal the expanded value
+                    // looks like one. Preserve the metadata so the executor
+                    // can consult the raw form and avoid mis-materializing
+                    // the expanded word as a process substitution (func5.sub
+                    // line 45 `\<\(:\)` must report "command not found").
+                    || metadata.value.contains("<(")
+                    || metadata.value.contains(">(")
             });
         let mut variable_expanded = CommandNode {
             words: Vec::new(),

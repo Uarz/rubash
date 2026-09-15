@@ -1572,7 +1572,7 @@ fn run_source_with_line_offset(
         executor.mark_parse_error();
         eprintln!(
             "{}maximum here-document count exceeded",
-            executor.diagnostic_prefix_for_line(line)
+            executor.parser_diagnostic_prefix_for_line(line)
         );
         return 2;
     }
