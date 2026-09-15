@@ -837,6 +837,20 @@ impl Executor {
                     None => (None, core),
                 };
                 if let Some(name) = param.strip_prefix('$') {
+                    // GNU parse.y: a backslash-escaped `\$` in a compound
+                    // assignment word is a literal `$`, not a parameter
+                    // expansion (array.tests:408 `declare -a x=(\$0)`
+                    // stores `$0`, not the script path). token_raw keeps
+                    // the backslash; check it before expanding.
+                    let raw_param = token_raw
+                        .trim_matches('\u{E102}')
+                        .split_once('=')
+                        .map(|(_, v)| v)
+                        .unwrap_or(token_raw.trim_matches('\u{E102}'));
+                    if raw_param.starts_with("\\$") {
+                        values.push(token_raw.clone());
+                        continue;
+                    }
                     if name.chars().all(|c| c.is_ascii_digit()) && !name.is_empty() {
                         let expanded = if name == "0" {
                             Some(self.script_name_value())
