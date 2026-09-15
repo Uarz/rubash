@@ -675,12 +675,18 @@ impl Executor {
                     // \u{E102}${!ref}\u{E102} with no \x1d quoted-RHS
                     // marker; the indirect reference must still fan out
                     // per element (new-exp4.sub Case08 `"${!xx}"` with
-                    // xx=arrayA[@]).
-                    token
-                        .trim_matches('\u{E102}')
-                        .strip_prefix("${")
-                        .and_then(|token| token.strip_suffix('}'))
-                        .and_then(|name| name.strip_prefix('!'))
+                    // xx=arrayA[@]). Only match when \u{E102} wrapping is
+                    // actually present so unquoted `${!ref}` falls through
+                    // to the unquoted indirect branch below.
+                    if token.starts_with('\u{E102}') && token.ends_with('\u{E102}') {
+                        token
+                            .trim_matches('\u{E102}')
+                            .strip_prefix("${")
+                            .and_then(|token| token.strip_suffix('}'))
+                            .and_then(|name| name.strip_prefix('!'))
+                    } else {
+                        None
+                    }
                 })
             {
                 // GNU compound assignment of quoted "${!ref}": a direct
