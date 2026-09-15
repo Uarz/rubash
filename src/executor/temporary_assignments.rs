@@ -419,10 +419,17 @@ impl Executor {
             && is_marked_var(&self.env_vars, ASSOC_VARS, base_name)
         {
             let bare_elements = assoc_bare_elements(&value);
+            // GNU assign_compound_array_list (arrayfunc.c:838-843): a bare
+            // element in an assoc compound assignment reports an error and
+            // breaks the loop, but elements already processed ARE stored.
+            // Store the valid elements first, then report the error.
+            let stored = append_assoc_value(
+                "()",
+                &value,
+                is_marked_var(&self.env_vars, INTEGER_VARS, base_name),
+                &self.env_vars,
+            );
             for bare in &bare_elements {
-                // GNU assign_compound_array_list breaks the strict loop at
-                // the first offending word and abandons the assignment
-                // (assoc-kv2 probe M1: a=([x] one [y] two) stores NOTHING).
                 eprintln!(
                     "{}{}: {}: must use subscript when assigning associative array",
                     self.diagnostic_prefix(),
@@ -433,12 +440,7 @@ impl Executor {
             if !bare_elements.is_empty() {
                 return false;
             }
-            append_assoc_value(
-                "()",
-                &value,
-                is_marked_var(&self.env_vars, INTEGER_VARS, base_name),
-                &self.env_vars,
-            )
+            stored
         } else if compound_assignment
             && value.starts_with('(')
             && value.ends_with(')')
