@@ -401,6 +401,15 @@ impl Executor {
                     .map(move |word| (word, suppress_glob))
             })
             .collect::<Vec<_>>();
+        // GNU subst.c:9955-9956 + 4288-4296: a bad array subscript in a
+        // length expansion (${#arr[bad]}) returns &expand_wdesc_error, which
+        // exp_jump_to_top_level(DISCARD) uses to abandon the entire command
+        // (echo produces no output at all, not even a newline). The
+        // expand_command_word path sets arithmetic_nonfatal_error; check it
+        // here and skip the command with ExpansionFailure(1).
+        if self.arithmetic_nonfatal_error.take() {
+            return Err(ExecuteError::ExpansionFailure(1));
+        }
         variable_expanded.words = expanded_words
             .iter()
             .map(|(word, _)| materialize_expanded_command_word(word))
@@ -836,10 +845,11 @@ impl Executor {
         // a negative number (bad array subscript), the word expansion returns
         // &expand_wdesc_error and the word is dropped entirely (echo produces
         // no output, not even an empty line). We signal this via
-        // arithmetic_nonfatal_error; drop the word when it is set.
+        // arithmetic_nonfatal_error; the caller (expand_command_words)
+        // checks the flag and returns ExpansionFailure to skip the command.
         if self.arithmetic_nonfatal_error.get() {
-            eprintln!("DEBUG: nonfatal_error set, dropping word");
-            self.arithmetic_nonfatal_error.set(saved_nonfatal);
+            // Keep the flag set so expand_command_words can detect it and
+            // return ExpansionFailure(1) to skip the entire command.
             return Vec::new();
         }
         self.arithmetic_nonfatal_error.set(saved_nonfatal);
