@@ -321,6 +321,7 @@ fn tokenize_with_heredocs(
             let mut body = String::new();
             let mut continued_body_line = String::new();
             let mut found_delimiter = false;
+            let mut found_with_warning = false;
             for body_line in lines.by_ref() {
                 position += body_line.len() + 1;
                 line_number += 1;
@@ -346,19 +347,37 @@ fn tokenize_with_heredocs(
                     }
                 }
 
-                if comparable == delimiter.value
-                    || (delimiter.allow_closing_paren
-                        && comparable
-                            .strip_suffix(')')
-                            .is_some_and(|value| value == delimiter.value))
-                {
+                if comparable == delimiter.value {
                     found_delimiter = true;
                     break;
                 }
                 // GNU make_cmd.c:602-611 (PST_EOFTOKEN): inside a command
-                // substitution a body line that starts with the delimiter and
-                // ends the substitution (`EOF )`) terminates the heredoc as if
-                // it hit EOF; the body keeps only the lines before it.
+                // substitution, a body line that starts with the delimiter
+                // and contains `)` (the shell_eof_token) terminates the
+                // heredoc as if it hit EOF; the body keeps only the lines
+                // before it, and a warning is issued (full_line=0).  This
+                // covers `EOF)`, `EOF )`, and `))` (when the delimiter is
+                // `)` itself).
+                if delimiter.allow_closing_paren
+                    && comparable.starts_with(delimiter.value.as_str())
+                    && comparable[delimiter.value.len()..].contains(')')
+                {
+                    found_delimiter = true;
+                    found_with_warning = true;
+                    break;
+                }
+                // GNU make_cmd.c:602: a body line that is exactly the
+                // delimiter followed by `)` (e.g. `EOF)`) also terminates
+                // the heredoc with a warning on the non-comsub path.
+                if delimiter.allow_closing_paren
+                    && comparable
+                        .strip_suffix(')')
+                        .is_some_and(|value| value == delimiter.value)
+                {
+                    found_delimiter = true;
+                    found_with_warning = true;
+                    break;
+                }
                 if in_comsub
                     && comparable.starts_with(delimiter.value.as_str())
                     && comparable[delimiter.value.len()..].trim().is_empty()
@@ -371,6 +390,8 @@ fn tokenize_with_heredocs(
             }
             if !found_delimiter {
                 body.insert(0, '\x1f');
+            } else if found_with_warning {
+                body.insert(0, '\x1e');
             }
             if delimiter.quoted {
                 body.insert_str(0, QUOTED_HEREDOC_MARKER);

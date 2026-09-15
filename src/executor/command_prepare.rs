@@ -105,6 +105,8 @@ impl Executor {
         }
         if command_has_unterminated_heredoc(cmd) {
             self.report_unterminated_heredoc(cmd);
+        } else if command_has_warned_heredoc(cmd) {
+            self.report_warned_heredoc(cmd);
         }
         Ok(())
     }

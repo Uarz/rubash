@@ -84,11 +84,23 @@ pub(in crate::executor) fn command_has_unterminated_heredoc(cmd: &CommandNode) -
         .is_some_and(|body| strip_quoted_heredoc_marker(body).starts_with('\x1f'))
 }
 
+/// True when the here-document delimiter was found but not on a line by
+/// itself (e.g. `EOF)` inside a command substitution).  GNU make_cmd.c:606-627
+/// sets `full_line = 0` via the PST_EOFTOKEN path and issues the same warning
+/// as a truly unterminated heredoc.  The `\x1e` marker is inserted by the
+/// lexer for this case.
+pub(in crate::executor) fn command_has_warned_heredoc(cmd: &CommandNode) -> bool {
+    cmd.heredoc
+        .as_deref()
+        .is_some_and(|body| strip_quoted_heredoc_marker(body).starts_with('\x1e'))
+}
+
 pub(in crate::executor) fn strip_unterminated_heredoc_marker(body: &str) -> &str {
-    let Some(stripped) = body.strip_prefix('\x1f') else {
-        return body;
-    };
-    stripped
+    let stripped = body.strip_prefix('\x1f').or_else(|| body.strip_prefix('\x1e'));
+    match stripped {
+        Some(s) => s,
+        None => body,
+    }
 }
 
 pub(in crate::executor) fn strip_quoted_heredoc_marker(body: &str) -> &str {

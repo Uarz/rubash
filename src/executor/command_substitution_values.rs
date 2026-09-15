@@ -619,16 +619,15 @@ impl Executor {
             .get("__RUBASH_CURRENT_LINE")
             .and_then(|line| line.parse::<usize>().ok())
             .unwrap_or_else(|| command.line.unwrap_or(1));
-        // GNU make_cmd.c:627 reports the heredoc start line as the line
-        // where the command substitution closes (the `)` line), not the
-        // line where `<<EOF` appears. When a heredoc spans a command-
-        // substitution boundary, the parser relocates the heredoc start
-        // to the closing paren line. Match that by using the end-of-body
-        // line for both the diagnostic prefix and the "at line N" field.
+        let start_line = command.line.unwrap_or(1);
+        // GNU make_cmd.c:627: `lineno` is the line_number at the time
+        // gather_here_documents was called (the line where `<<EOF` appeared),
+        // and internal_warning's prefix uses the current line_number (after
+        // make_here_document read the body, i.e. the EOF/delimiter line).
         let warning_line = current_line + source.lines().count().saturating_sub(1);
         let delimiter = command.heredoc_delimiter.as_deref().unwrap_or("");
         eprintln!(
-            "{}warning: here-document at line {warning_line} delimited by end-of-file (wanted `{delimiter}')",
+            "{}warning: here-document at line {start_line} delimited by end-of-file (wanted `{delimiter}')",
             self.diagnostic_prefix_for_line(warning_line)
         );
     }

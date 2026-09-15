@@ -69,6 +69,13 @@ impl Executor {
         // cwd is part of the subshell environment too (niubash#100): a `cd`
         // inside `f() ( cd X )`-style flat subshells must not leak out.
         let mut subshell_cwd: Option<PathBuf> = None;
+        // Same for the typed variable store, positional parameters, and loop
+        // depth: GNU's forked subshell owns copies of all of them, so an
+        // assignment or `set --` inside `f() ( ... )` must not reach the
+        // caller.
+        let mut subshell_variables = None;
+        let mut subshell_positional: Option<Vec<String>> = None;
+        let mut subshell_loop_depth: Option<usize> = None;
         while index < ast.commands.len() {
             let command = &ast.commands[index];
             {
@@ -93,6 +100,15 @@ impl Executor {
                     }
                     if let Some(saved_dir) = subshell_cwd.take() {
                         let _ = env::set_current_dir(saved_dir);
+                    }
+                    if let Some(saved_variables) = subshell_variables.take() {
+                        self.shell_state.variables = saved_variables;
+                    }
+                    if let Some(saved_positional) = subshell_positional.take() {
+                        self.set_positional_params(saved_positional);
+                    }
+                    if let Some(saved_loop_depth) = subshell_loop_depth.take() {
+                        self.loop_depth = saved_loop_depth;
                     }
                 }
                 index += 1;
@@ -705,6 +721,10 @@ impl Executor {
             if command.subshell && subshell_env.is_none() {
                 subshell_env = Some(self.env_vars.clone());
                 subshell_cwd = env::current_dir().ok();
+                subshell_variables = Some(self.shell_state.variables.clone());
+                subshell_positional = Some(self.positional_params.clone());
+                subshell_loop_depth = Some(self.loop_depth);
+                self.loop_depth = 0;
                 crate::builtins::trap::reset_for_subshell(&mut self.env_vars);
                 subshell_pipestatus = Some(self.pipestatus.clone());
                 let old_depth = self.subshell_depth.get();
@@ -839,6 +859,15 @@ impl Executor {
                     if let Some(saved_dir) = subshell_cwd.take() {
                         let _ = env::set_current_dir(saved_dir);
                     }
+                    if let Some(saved_variables) = subshell_variables.take() {
+                        self.shell_state.variables = saved_variables;
+                    }
+                    if let Some(saved_positional) = subshell_positional.take() {
+                        self.set_positional_params(saved_positional);
+                    }
+                    if let Some(saved_loop_depth) = subshell_loop_depth.take() {
+                        self.loop_depth = saved_loop_depth;
+                    }
                     // A malformed subshell can leave the command list with
                     // no closing marker.  In that case there is no boundary
                     // to advance to; continuing would execute the same
@@ -911,6 +940,15 @@ impl Executor {
                 }
                 if let Some(saved_dir) = subshell_cwd.take() {
                     let _ = env::set_current_dir(saved_dir);
+                }
+                if let Some(saved_variables) = subshell_variables.take() {
+                    self.shell_state.variables = saved_variables;
+                }
+                if let Some(saved_positional) = subshell_positional.take() {
+                    self.set_positional_params(saved_positional);
+                }
+                if let Some(saved_loop_depth) = subshell_loop_depth.take() {
+                    self.loop_depth = saved_loop_depth;
                 }
             }
 

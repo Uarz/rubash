@@ -1890,6 +1890,18 @@ impl Executor {
         }
 
         if let Some(name) = array_name {
+            // GNU builtins/common.c:1003-1006: `read -a` on a variable that
+            // is not an indexed array (e.g., an associative array) reports
+            // `read: A: not an indexed array` and does not read into it
+            // (array33.sub:52 `read -a A` on `declare -A A`).
+            if is_marked_var(&self.env_vars, ASSOC_VARS, &name) {
+                let _ = writeln!(
+                    &mut stderr,
+                    "{}read: {name}: not an indexed array",
+                    self.diagnostic_prefix()
+                );
+                return self.finish_read_error(cmd, &stderr, 2);
+            }
             if char_limit == Some(0) {
                 let _ = self
                     .shell_state

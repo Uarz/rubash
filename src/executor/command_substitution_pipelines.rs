@@ -9,17 +9,54 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 /// also carries the closing `)` (`cat << EOF)`). GNU treats this as an
 /// unterminated here-document inside the substitution (parse.y:4563-4567)
 /// and warns before gathering it (heredoc7.sub).
+///
+/// The `)` must be AFTER the heredoc delimiter word, not part of it.
+/// `cat <<\)` has `)` as the delimiter (backslash-quoted), so the `)` is
+/// NOT the command-substitution closer.  `cat <<EOF)` has `EOF` as the
+/// delimiter and `)` as the closer.
 fn heredoc_header_closes_command_substitution(source: &str) -> bool {
     let Some(header) = source.lines().next() else {
         return false;
     };
-    if !header.contains("<<") {
+    let Some(ll_pos) = header.find("<<") else {
         return false;
+    };
+    let after = &header[ll_pos + 2..];
+    // Skip optional '-' for <<-
+    let after = after.strip_prefix('-').unwrap_or(after);
+    // Skip leading whitespace
+    let after = after.trim_start();
+    // Parse the delimiter word: characters until unquoted whitespace, `;`,
+    // `|`, `&`, or `)`.  Backslash escapes the next character.  Single and
+    // double quotes delimit quoted sections that are part of the delimiter.
+    let bytes = after.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let ch = bytes[i] as char;
+        if ch == '\\' && i + 1 < bytes.len() {
+            // Escaped character is part of the delimiter
+            i += 2;
+            continue;
+        }
+        if ch == '\'' || ch == '"' {
+            // Quoted section: skip to matching quote
+            let quote = ch;
+            i += 1;
+            while i < bytes.len() && bytes[i] as char != quote {
+                i += 1;
+            }
+            if i < bytes.len() {
+                i += 1; // skip closing quote
+            }
+            continue;
+        }
+        if ch.is_whitespace() || matches!(ch, ';' | '|' | '&' | ')') {
+            break;
+        }
+        i += 1;
     }
-    header
-        .split("<<")
-        .nth(1)
-        .is_some_and(|after| after.trim().ends_with(')'))
+    // Check if there's a `)` after the delimiter word
+    after[i..].trim_start().starts_with(')')
 }
 
 fn mktemp_command_substitution_display_path(path: &std::path::Path) -> String {

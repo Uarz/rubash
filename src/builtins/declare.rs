@@ -24,10 +24,36 @@ use names::{
     check_selfref, declare_base_name, valid_array_reference, valid_declare_name,
     valid_nameref_value,
 };
-use storage::{indexed_array_entries, parse_assoc_words};
+use storage::{
+    format_array_value, format_assoc_value, indexed_array_entries, parse_assoc_words,
+};
 
 const EXECUTION_SUCCESS: i32 = 0;
 const EXECUTION_FAILURE: i32 = 1;
+
+/// Format an associative array storage value for `set` output
+/// (variables.c:1096 print_assignment -> arrayfunc.c:1257 print_assoc_assignment).
+/// Used by the `set` builtin to print assoc arrays as `name=(["key"]="value" )`
+/// instead of `name='(...)'`.
+pub(crate) fn format_assoc_for_output(value: &str) -> String {
+    format_assoc_value(value)
+}
+
+/// Format an indexed array storage value for `set` output
+/// (variables.c:1096 print_assignment -> arrayfunc.c:1239 print_array_assignment).
+/// Used by the `set` builtin to print indexed arrays as `name=([0]="value" )`
+/// instead of `name='(...)'`.
+pub(crate) fn format_array_for_output(value: &str) -> String {
+    format_array_value(value)
+}
+
+/// Create an associative array from a compound assignment value
+/// (arrayfunc.c:630 assign_assoc_from_kvlist). Used by `readonly -A` and
+/// `export` when they need to create an associative array from a kvpair
+/// compound assignment like `( one 1 two 2 three 3 )`.
+pub(crate) fn create_assoc_from_compound(value: &str) -> String {
+    storage::append_assoc_value("()", value, false, &HashMap::new())
+}
 const EXPORTED_VARS: &str = "__RUBASH_EXPORTED_VARS";
 const READONLY_VARS: &str = "__RUBASH_READONLY_VARS";
 const ARRAY_VARS: &str = "__RUBASH_ARRAY_VARS";

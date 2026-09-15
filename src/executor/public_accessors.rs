@@ -661,13 +661,36 @@ impl Executor {
             .unwrap_or(0);
         let warning_line = start_line + body_lines;
         let delimiter = cmd.heredoc_delimiter.as_deref().unwrap_or("");
-        // GNU make_cmd.c:627 reports the heredoc start as the line where the
-        // body ends (the EOF/delimiter line), not the line where `<<EOF` was
-        // written. Match that by using warning_line for both the prefix and
-        // the "at line N" field.
+        // GNU make_cmd.c:627: `lineno` is the line_number at the time
+        // gather_here_documents was called (the line where `<<EOF` appeared
+        // for simple commands), and internal_warning's prefix uses the
+        // current line_number (after make_here_document read the body,
+        // i.e. the EOF/delimiter line).  So "at line N" = start_line and
+        // the prefix = warning_line.
         eprintln!(
-            "{}warning: here-document at line {warning_line} delimited by end-of-file (wanted `{delimiter}')",
+            "{}warning: here-document at line {start_line} delimited by end-of-file (wanted `{delimiter}')",
             self.diagnostic_prefix_for_line(warning_line)
+        );
+    }
+
+    /// Report a here-document whose delimiter was found but not on a line by
+    /// itself (e.g. `EOF)` inside a command substitution).  GNU make_cmd.c:606-627
+    /// sets `full_line = 0` via the PST_EOFTOKEN backwards-compat path and
+    /// issues the same warning as a truly unterminated heredoc.  The prefix
+    /// line is the delimiter line (start_line + body_lines + 1), and "at line
+    /// N" is the heredoc start line.
+    pub(in crate::executor) fn report_warned_heredoc(&self, cmd: &CommandNode) {
+        let start_line = cmd.line.unwrap_or(1);
+        let body_lines = cmd
+            .heredoc
+            .as_deref()
+            .map(unterminated_heredoc_body_line_count)
+            .unwrap_or(0);
+        let delimiter_line = start_line + body_lines + 1;
+        let delimiter = cmd.heredoc_delimiter.as_deref().unwrap_or("");
+        eprintln!(
+            "{}warning: here-document at line {start_line} delimited by end-of-file (wanted `{delimiter}')",
+            self.diagnostic_prefix_for_line(delimiter_line)
         );
     }
 

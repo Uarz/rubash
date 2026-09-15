@@ -272,7 +272,7 @@ fn command_word_is_operator(word: &str) -> bool {
         "|" | "|&" | "||" | "&&" | "&" | ";" | ";;" | ";&" | ";;&" => true,
         "<" | ">" | ">>" | ">|" | "<>" | "<<" | "<<<" | "<&" | ">&" | "&>" | "&>>" | "1>"
         | "1>>" | "1>|" | "1<&" | "1>&" | "2>" | "2>>" | "2>|" | "2<&" | "2>&" => true,
-        _ => command_word_carries_redirect(word),
+        _ => command_word_carries_redirect(word) || word.contains('|'),
     }
 }
 
