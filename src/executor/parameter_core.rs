@@ -289,7 +289,15 @@ impl Executor {
         &self,
         name: &'a str,
     ) -> Option<(&'a str, isize, Option<isize>)> {
-        let (var_name, rest) = name.split_once(':')?;
+        // Use split_top_level_colon to skip `:` inside $(...), ${...}, and
+        // quoted regions — a plain split_once(':') would match `$( : )` in
+        // `${x+ab "$( : )"}` and misroute a `+`-operator word to the substring
+        // path (quote.tests quote3.sub).
+        let (var_name, rest, has_colon) = split_top_level_colon(name);
+        if !has_colon {
+            return None;
+        }
+        let var_name = var_name.trim_end();
         if var_name.is_empty() || matches!(rest.chars().next(), Some('=' | '+' | '?')) {
             return None;
         }
@@ -300,23 +308,48 @@ impl Executor {
         // Split offset/length on a *top-level* `:` only: `${v:${w:-4}}` has
         // offset `${w:-4}` whose inner `:` is default-value syntax, not the
         // slice separator (Bash extracts nested `${...}` as one unit).
-        let (offset, length, has_length) = split_top_level_colon(rest);
-        let offset = offset.trim_start();
-        if offset.is_empty() && length.is_empty() && !has_length {
+        let (offset_str, length_str, has_length) = split_top_level_colon(rest);
+        let offset_str = offset_str.trim_start();
+        if offset_str.is_empty() && length_str.is_empty() && !has_length {
             return None;
         }
 
-        let offset = if offset.is_empty() {
+        let offset = if offset_str.is_empty() {
             0
         } else {
-            self.eval_parameter_substring_offset(offset)?
+            match self.eval_parameter_substring_offset(offset_str) {
+                Some(value) => value,
+                None => {
+                    // GNU subst.c verify_substring_values: an invalid offset
+                    // expression is an arithmetic error (expok == 0), not a
+                    // "not a substring" result. parameter_brace_substring
+                    // returns &expand_param_error, which propagates as an
+                    // expansion error. Returning None here would let the
+                    // caller fall through to non-substring handlers (e.g.
+                    // ${#} length), producing wrong output.
+                    if self.arithmetic_last_error_category.take().is_some() {
+                        self.report_substring_arithmetic_error(var_name, offset_str);
+                        return Some((var_name, 0, Some(0)));
+                    }
+                    return None;
+                }
+            }
         };
         let length = if !has_length {
             None
-        } else if length.is_empty() {
+        } else if length_str.is_empty() {
             Some(0)
         } else {
-            Some(self.eval_parameter_substring_offset(length)?)
+            match self.eval_parameter_substring_offset(length_str) {
+                Some(value) => Some(value),
+                None => {
+                    if self.arithmetic_last_error_category.take().is_some() {
+                        self.report_substring_arithmetic_error(var_name, length_str);
+                        return Some((var_name, 0, Some(0)));
+                    }
+                    return None;
+                }
+            }
         };
 
         Some((var_name, offset, length))
@@ -342,15 +375,23 @@ impl Executor {
         // before arithmetic evaluation (Bash evaluates the slice offset as
         // an arithmetic expression after parameter expansion).
         let expression = self.expand_embedded_parameters(&expression);
-        let evaluated = eval_conditional_arith_value(&expression, &self.env_vars)?;
-        isize::try_from(evaluated).ok()
+        let (evaluated, category) =
+            eval_conditional_arith_value_categorized(&expression, &self.env_vars);
+        if evaluated.is_none() {
+            self.arithmetic_last_error_category.set(category);
+        }
+        isize::try_from(evaluated?).ok()
     }
 
     pub(in crate::executor) fn parse_parameter_substring_mut<'a>(
         &mut self,
         name: &'a str,
     ) -> Option<(&'a str, isize, Option<isize>)> {
-        let (var_name, rest) = name.split_once(':')?;
+        let (var_name, rest, has_colon) = split_top_level_colon(name);
+        if !has_colon {
+            return None;
+        }
+        let var_name = var_name.trim_end();
         if var_name.is_empty() || matches!(rest.chars().next(), Some('=' | '+' | '?')) {
             return None;
         }
@@ -358,23 +399,48 @@ impl Executor {
             return None;
         }
 
-        let (offset, length, has_length) = split_top_level_colon(rest);
-        let offset = offset.trim_start();
-        if offset.is_empty() && length.is_empty() && !has_length {
+        let (offset_str, length_str, has_length) = split_top_level_colon(rest);
+        let offset_str = offset_str.trim_start();
+        if offset_str.is_empty() && length_str.is_empty() && !has_length {
             return None;
         }
 
-        let offset = if offset.is_empty() {
+        let offset = if offset_str.is_empty() {
             0
         } else {
-            self.eval_parameter_substring_offset_mut(offset)?
+            match self.eval_parameter_substring_offset_mut(offset_str) {
+                Some(value) => value,
+                None => {
+                    // GNU subst.c verify_substring_values: an invalid offset
+                    // expression is an arithmetic error (expok == 0), not a
+                    // "not a substring" result. parameter_brace_substring
+                    // returns &expand_param_error, which propagates as an
+                    // expansion error. Returning None here would let the
+                    // caller fall through to non-substring handlers (e.g.
+                    // ${#} length), producing wrong output.
+                    if self.arithmetic_last_error_category.take().is_some() {
+                        self.report_substring_arithmetic_error(var_name, offset_str);
+                        return Some((var_name, 0, Some(0)));
+                    }
+                    return None;
+                }
+            }
         };
         let length = if !has_length {
             None
-        } else if length.is_empty() {
+        } else if length_str.is_empty() {
             Some(0)
         } else {
-            Some(self.eval_parameter_substring_offset_mut(length)?)
+            match self.eval_parameter_substring_offset_mut(length_str) {
+                Some(value) => Some(value),
+                None => {
+                    if self.arithmetic_last_error_category.take().is_some() {
+                        self.report_substring_arithmetic_error(var_name, length_str);
+                        return Some((var_name, 0, Some(0)));
+                    }
+                    return None;
+                }
+            }
         };
 
         Some((var_name, offset, length))
@@ -395,6 +461,61 @@ impl Executor {
         let expression = self.expand_embedded_parameters_mut(&expression);
         let evaluated = self.eval_arithmetic_expansion_value(&expression)?;
         isize::try_from(evaluated).ok()
+    }
+
+    /// GNU subst.c parameter_brace_substring sets `this_command_name` to the
+    /// parameter name before calling verify_substring_values → evalexp. When
+    /// evalexp fails (expr.c evalerror), the diagnostic is formatted as
+    /// `<varname>: <expression>: <msg> (error token is "<token>")` — the
+    /// varname prefix comes from `this_command_name`, the expression from the
+    /// offset/length text. Rubash mirrors this by prepending the varname to
+    /// the standard `arithmetic_error_message` output.
+    fn report_substring_arithmetic_error(&self, var_name: &str, expression: &str) {
+        self.arithmetic_fatal_error.set(true);
+        if !self.arithmetic_expansion_error.replace(true) {
+            let mut message = crate::executor::arithmetic::arithmetic_error_message(
+                expression,
+                true,
+                &self.env_vars,
+            )
+            .unwrap_or_else(|| {
+                format!("{expression}: syntax error in expression (error token is \"{expression}\")")
+            });
+            // GNU expr.c: when the expression is entirely an operator with no
+            // left operand (e.g. `${#:%}` where the offset is `%`), the parser
+            // raises "arithmetic syntax error: operand expected" from expvalue
+            // (expr.c:1120), not "arithmetic syntax error in expression" from
+            // trailing input (expr.c:485). Rubash's arithmetic_error_message
+            // checks trailing_input_token before trailing_operator_error, so a
+            // bare operator is misclassified as trailing input. Detect the
+            // parse-failed-entirely case (trailing token == entire expression)
+            // and fix the message to match GNU.
+            if message.contains("arithmetic syntax error in expression") {
+                if let Some(token) =
+                    crate::executor::arithmetic::trailing_input_token(expression)
+                {
+                    if token.trim() == expression.trim() {
+                        let command_context = self
+                            .env_vars
+                            .get("__RUBASH_IS_C")
+                            .map(String::as_str)
+                            != Some("1");
+                        let operand_expected = if command_context {
+                            "arithmetic syntax error: operand expected"
+                        } else {
+                            "syntax error: operand expected"
+                        };
+                        let display = expression.trim_start();
+                        message = format!(
+                            "{display}: {operand_expected} (error token is \"{token}\")"
+                        );
+                    }
+                }
+            }
+            eprintln!("{}{}: {}", self.diagnostic_prefix(), var_name, message);
+            use std::io::Write;
+            let _ = std::io::stderr().flush();
+        }
     }
 }
 
