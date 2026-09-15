@@ -107,6 +107,35 @@ impl Executor {
                     .map(|value| parameter_char_length(&value).to_string())
                     .unwrap_or_else(|| "0".to_string());
             }
+            // GNU subst.c param_expand: a subscript that is not a plain
+            // integer is evaluated as an arithmetic expression
+            // (array4.sub: ${#LNAME[$(( 0 ))]} -> length of LNAME[0]).
+            // parse_array_integer_subscript / parse_array_numeric_subscript
+            // only accept bare digit strings, so evaluate the subscript
+            // here for scalar vars and indexed arrays alike.
+            let expr = key
+                .strip_prefix("$((")
+                .and_then(|e| e.strip_suffix("))"))
+                .map(|e| e.trim())
+                .unwrap_or(key);
+            if let Some(index) = eval_conditional_arith_value(expr, &self.env_vars) {
+                if let Some(value) = self.env_vars.get(array_name) {
+                    if let Some(resolved) = resolve_indexed_array_subscript(value, index) {
+                        if let Some(element) = array_value_at(value, resolved) {
+                            return parameter_char_length(&element).to_string();
+                        }
+                    }
+                    // Scalar variable: ${#scalar[$(( 0 ))]} is the length
+                    // of the scalar value (GNU variables.c: a scalar is a
+                    // one-element array at index 0).
+                    if !is_array_storage(value) && index == 0 {
+                        if let Some(scalar) = self.scalar_parameter_value(array_name, value) {
+                            return parameter_char_length(&scalar).to_string();
+                        }
+                    }
+                }
+            }
+            return "0".to_string();
         }
         if let Some(value) = self.dynamic_parameter_value(var_name) {
             return parameter_char_length(&value).to_string();
