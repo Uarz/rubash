@@ -266,6 +266,7 @@ impl Executor {
             arithmetic_fatal_error: Cell::new(false),
             arithmetic_nounset_error: Cell::new(false),
             arithmetic_last_error_category: Cell::new(None),
+            arithmetic_last_error_expression: std::cell::RefCell::new(String::new()),
             inside_compound_condition: Cell::new(false),
             inside_assignment_rhs: Cell::new(false),
             last_command_substitution_status: Cell::new(None),

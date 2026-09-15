@@ -298,7 +298,20 @@ impl Executor {
             return None;
         }
         let var_name = var_name.trim_end();
-        if var_name.is_empty() || matches!(rest.chars().next(), Some('=' | '+' | '?')) {
+        // GNU string_extract (parse.y) stops the variable name at the first
+        // character in "#%^,:-=?+/@}" — so a name containing `/` (e.g.
+        // `XPATH//` from `${XPATH//:/ }`) is a pattern substitution, not a
+        // substring. Reject names with operator characters before attempting
+        // substring parsing. `#` is excluded because it is a valid special
+        // parameter name (${#} = positional param count).
+        if var_name.is_empty()
+            || var_name
+                .chars()
+                .any(|c| matches!(c, '/' | '%' | '^' | ',' | '~'))
+        {
+            return None;
+        }
+        if matches!(rest.chars().next(), Some('=' | '+' | '?')) {
             return None;
         }
         if rest.starts_with('-') {
@@ -379,6 +392,11 @@ impl Executor {
             eval_conditional_arith_value_categorized(&expression, &self.env_vars);
         if evaluated.is_none() {
             self.arithmetic_last_error_category.set(category);
+            // Save the expanded expression so report_substring_arithmetic_error
+            // can use it — GNU evalexp operates on the expanded text, so the
+            // error token must come from the post-expansion form (e.g.
+            // `${HOME:`echo }`}` → offset `}` not `` `echo }` ``).
+            *self.arithmetic_last_error_expression.borrow_mut() = expression.to_string();
         }
         isize::try_from(evaluated?).ok()
     }
@@ -392,7 +410,20 @@ impl Executor {
             return None;
         }
         let var_name = var_name.trim_end();
-        if var_name.is_empty() || matches!(rest.chars().next(), Some('=' | '+' | '?')) {
+        // GNU string_extract (parse.y) stops the variable name at the first
+        // character in "#%^,:-=?+/@}" — so a name containing `/` (e.g.
+        // `XPATH//` from `${XPATH//:/ }`) is a pattern substitution, not a
+        // substring. Reject names with operator characters before attempting
+        // substring parsing. `#` is excluded because it is a valid special
+        // parameter name (${#} = positional param count).
+        if var_name.is_empty()
+            || var_name
+                .chars()
+                .any(|c| matches!(c, '/' | '%' | '^' | ',' | '~'))
+        {
+            return None;
+        }
+        if matches!(rest.chars().next(), Some('=' | '+' | '?')) {
             return None;
         }
         if rest.starts_with('-') {
@@ -459,8 +490,13 @@ impl Executor {
             .trim();
         let expression = self.expand_arithmetic_special_parameters(expression);
         let expression = self.expand_embedded_parameters_mut(&expression);
-        let evaluated = self.eval_arithmetic_expansion_value(&expression)?;
-        isize::try_from(evaluated).ok()
+        let evaluated = self.eval_arithmetic_expansion_value(&expression);
+        if evaluated.is_none() {
+            // Save the expanded expression for report_substring_arithmetic_error
+            // (same rationale as eval_parameter_substring_offset).
+            *self.arithmetic_last_error_expression.borrow_mut() = expression.to_string();
+        }
+        isize::try_from(evaluated?).ok()
     }
 
     /// GNU subst.c parameter_brace_substring sets `this_command_name` to the
@@ -473,6 +509,13 @@ impl Executor {
     fn report_substring_arithmetic_error(&self, var_name: &str, expression: &str) {
         self.arithmetic_fatal_error.set(true);
         if !self.arithmetic_expansion_error.replace(true) {
+            // Prefer the expanded expression saved by eval_parameter_substring_offset
+            // — GNU evalexp runs after parameter/command substitution, so the
+            // error token must come from the post-expansion form (e.g.
+            // `${HOME:`echo }`}` → `}` not `` `echo }` ``).
+            let saved = self.arithmetic_last_error_expression.borrow().clone();
+            let expression = if saved.is_empty() { expression.to_string() } else { saved };
+            let expression = expression.as_str();
             let mut message = crate::executor::arithmetic::arithmetic_error_message(
                 expression,
                 true,
