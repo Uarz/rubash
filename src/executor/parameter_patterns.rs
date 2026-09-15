@@ -96,7 +96,6 @@ impl Executor {
         pattern: &str,
         operation: PatternRemoval,
     ) -> Option<String> {
-        eprintln!("DEBUG expand_parameter_pattern_removal: var_name={var_name:?} pattern={pattern:?}");
         let pattern = self.expand_parameter_pattern_word(pattern);
         if matches!(var_name, "@" | "*") {
             let result = self.positional_params
@@ -106,7 +105,6 @@ impl Executor {
                 })
                 .collect::<Vec<_>>()
                 .join(" ");
-            eprintln!("DEBUG expand_parameter_pattern_removal: @/* result={result:?}");
             return Some(result);
         }
 

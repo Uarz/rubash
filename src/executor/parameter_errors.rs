@@ -733,11 +733,16 @@ impl Executor {
             }
             if let Some((name, offset, Some(length))) = self.parse_parameter_substring(inner) {
                 if length < 0 {
-                    let is_array_slice = name
-                        .strip_suffix("[@]")
-                        .or_else(|| name.strip_suffix("[*]"))
-                        .is_some();
-                    let is_invalid = is_array_slice
+                    // GNU subst.c:8482: for VT_POSPARMS (@/*) and VT_ARRAYVAR
+                    // (array[@]/array[*]), a negative length is unconditionally
+                    // an error. For scalar variables, the length is adjusted
+                    // by the string length and only errors if still negative.
+                    let is_pospar_or_array = matches!(name, "@" | "*")
+                        || name
+                            .strip_suffix("[@]")
+                            .or_else(|| name.strip_suffix("[*]"))
+                            .is_some();
+                    let is_invalid = is_pospar_or_array
                         || self.parameter_error_value(name).is_some_and(|value| {
                             parameter_substring_has_negative_result(
                                 value.chars().count(),

@@ -668,6 +668,20 @@ impl Executor {
                 .and_then(|token| token.strip_prefix("${"))
                 .and_then(|token| token.strip_suffix('}'))
                 .and_then(|name| name.strip_prefix('!'))
+                .or_else(|| {
+                    // The atomic lexer path (skip_word_at) preserves the
+                    // element's wrapping quotes as raw text, so the hoist
+                    // pass delivers `"${!ref}"` as
+                    // \u{E102}${!ref}\u{E102} with no \x1d quoted-RHS
+                    // marker; the indirect reference must still fan out
+                    // per element (new-exp4.sub Case08 `"${!xx}"` with
+                    // xx=arrayA[@]).
+                    token
+                        .trim_matches('\u{E102}')
+                        .strip_prefix("${")
+                        .and_then(|token| token.strip_suffix('}'))
+                        .and_then(|name| name.strip_prefix('!'))
+                })
             {
                 // GNU compound assignment of quoted "${!ref}": a direct
                 // array reference in the braced name is the KEYS expansion

@@ -45,8 +45,7 @@ impl Executor {
         offset: isize,
         length: Option<isize>,
     ) -> String {
-        std::fs::write("D:/repo/rubash/debug-star.txt",
-            format!("expand_star_at_substring: var_name={var_name} offset={offset} length={length:?}\n")).ok();
+
         let selected = if offset == 0 {
             let mut params = Vec::with_capacity(self.positional_params.len() + 1);
             params.push(self.script_name_value());
@@ -271,8 +270,7 @@ impl Executor {
         word: &str,
         context: SubstitutionQuoteContext,
     ) -> String {
-        std::fs::write("D:/repo/rubash/debug-qpw.txt",
-            format!("expand_quoted_parameter_word_mut: word={word:?} context={context:?}\n")).ok();
+
         // Bash 5.3 (parser.h FUNSUB_CHAR): a whitespace-led `${ command; }` /
         // `${|command;}` word is a nofork command substitution, not a
         // parameter form. The operator split_once parsing below would treat

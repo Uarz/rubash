@@ -5,8 +5,7 @@ impl Executor {
         &self,
         name: &str,
     ) -> Option<String> {
-        std::fs::write("D:/repo/rubash/debug-ops.txt",
-            format!("expand_braced_operator_or_array_parameter: name={name}\n")).ok();
+
         if let Some((var_name, word)) = name.split_once(":=") {
             if self
                 .parameter_operator_value(var_name)

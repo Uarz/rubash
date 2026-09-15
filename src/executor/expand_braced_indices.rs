@@ -192,14 +192,19 @@ impl Executor {
             return value;
         }
         if matches!(var_name, "@" | "*") {
+            let separator = if var_name == "*" {
+                self.ifs_first_char_separator()
+            } else {
+                " ".to_string()
+            };
             if offset == 0 {
                 let mut params = Vec::with_capacity(self.positional_params.len() + 1);
                 params.push(self.script_name_value());
                 params.extend(self.positional_params.iter().cloned());
-                return positional_parameter_substring(&params, 1, length).join(" ");
+                return positional_parameter_substring(&params, 1, length).join(&separator);
             }
             return positional_parameter_substring(&self.positional_params, offset, length)
-                .join(" ");
+                .join(&separator);
         }
         if let Some(array_name) = var_name
             .strip_suffix("[@]")
