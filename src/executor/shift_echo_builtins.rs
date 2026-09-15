@@ -259,8 +259,17 @@ impl Executor {
 }
 
 fn recho_display_arg(arg: &str) -> String {
+    // Decode raw byte markers (U+E000 pairs) to actual bytes first, so
+    // control bytes like 0x1c (from $'\c\\') are displayed as ^\ rather
+    // than being passed through as private-use area characters and then
+    // decoded to raw bytes by write_buffered_builtin_output (exp1.sub
+    // $'\c\\\001 \c\\\177' → ^\^A ^\^?).
+    let decoded = crate::executor::substitution_metadata::decode_raw_byte_markers(
+        arg.as_bytes(),
+    );
+    let decoded = String::from_utf8_lossy(&decoded);
     let mut output = String::new();
-    for ch in arg.chars() {
+    for ch in decoded.chars() {
         if ch == '\x7f' {
             output.push_str("^?");
         } else if ch.is_ascii_control() {
