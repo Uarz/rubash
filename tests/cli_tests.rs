@@ -1511,7 +1511,10 @@ fn arithmetic_for_errors_preserve_failure_status() {
 fn arithmetic_builtin_errors_report_their_owner() {
     for (command, marker) in [
         ("let", "let: expression expected"),
-        ("let '4 +'", "let: 4 +: arithmetic syntax error: operand expected"),
+        (
+            "let '4 +'",
+            "let: 4 +: arithmetic syntax error: operand expected",
+        ),
         (
             "let '7=4'",
             "let: 7=4: attempted assignment to non-variable",

@@ -200,6 +200,22 @@ impl Executor {
         if is_valid_process_env(name, &value) {
             set_process_env(name, &value);
         }
+        // Keep the shell-variable view in sync with the environment mirror.
+        // `shell_state.variables` is seeded from `env_vars` at `Executor::new`
+        // (init.rs `from_environment`), so every exported env var also exists
+        // as a scalar shell variable. `set_env` only updated `env_vars`, which
+        // made `$VAR` (shell_variable_value reads shell_state first) return a
+        // stale value while tilde/`home_value` (reads env_vars) returned the
+        // new one — the `$HOME` vs `~` inconsistency (niubash issue #90) and the
+        // same class of bug that PWD/OPTIND/export already paper over with
+        // manual syncs. Update the scalar in place so attributes (readonly,
+        // integer, exported, case-mod) are preserved; arrays/assoc and absent
+        // variables are left untouched, matching the existing sync sites.
+        if let Some(variable) = self.shell_state.variables.get_mut(name) {
+            if let crate::shell::ShellValue::Scalar(current) = &mut variable.value {
+                *current = value.clone();
+            }
+        }
         if name == "__RUBASH_SCRIPT_NAME" {
             let source_value = if self
                 .env_vars

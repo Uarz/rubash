@@ -683,8 +683,7 @@ impl Executor {
                     || !command.assignments.is_empty()
                     || !command.process_substitutions.is_empty()
             || command.pipe == Some(2)
-        })
-        {
+        }) {
             return Ok(None);
         }
 
@@ -893,8 +892,7 @@ impl Executor {
                     || !command.assignments.is_empty()
                     || !command.process_substitutions.is_empty()
             || command.pipe == Some(2)
-        })
-        {
+        }) {
             return Ok(None);
         }
 

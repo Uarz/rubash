@@ -296,7 +296,7 @@ impl<'a> Lexer<'a> {
                         start,
                     ))
                 }
-            }
+            },
             '`' => {
                 self.skip_backtick();
                 if self.peek().is_some_and(|ch| !is_word_delimiter(ch)) {

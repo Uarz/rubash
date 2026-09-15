@@ -293,6 +293,16 @@ impl Executor {
                             output.push('\x1a');
                             continue;
                         }
+                        // GNU subst.c: backslash before backslash is
+                        // consumed, leaving one literal \.  This must
+                        // happen before the `\$` check below so that
+                        // `\\$var` yields `\<expanded>` rather than
+                        // `\$var` (rhs-exp.tests t5/t6).
+                        '\\' => {
+                            chars.next();
+                            output.push('\\');
+                            continue;
+                        }
                         // A backslash inside a parameter body protects the
                         // next special character (GNU subst.c: the backslash
                         // keeps its escaping meaning before $, `, ", \.

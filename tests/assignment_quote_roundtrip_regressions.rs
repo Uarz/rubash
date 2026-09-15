@@ -40,5 +40,8 @@ fn quoted_assignment_reads_back_verbatim() {
 #[test]
 fn ansi_c_control_bytes_stay_raw_at_their_boundary() {
     // The bytes must survive as data, not be re-encoded into extra markers.
-    assert_eq!(rubash_raw("printf '%s' $'\\x11\\x16'"), b"\x11\x16".to_vec());
+    assert_eq!(
+        rubash_raw("printf '%s' $'\\x11\\x16'"),
+        b"\x11\x16".to_vec()
+    );
 }
