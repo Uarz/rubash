@@ -523,6 +523,27 @@ impl Executor {
                     .set_scalar(base_name, value.clone());
             }
         }
+        // GNU variables.c:3139-3140: for an assoc array, a scalar assignment
+        // stores the value at key "0" via assign_func. Without this, a value
+        // like `([a]=1)` is stored raw and later misinterpreted as assoc
+        // storage format (assoc.tests:191 T='([a]=1)' -> ${T[@]} is `([a]=1)`,
+        // not `1`).
+        if !compound_assignment
+            && !append
+            && is_marked_var(&self.env_vars, ASSOC_VARS, base_name)
+            && !value.starts_with('\x1d')
+        {
+            let storage = format!(
+                "([\"0\"]={})",
+                quote_assoc_storage_value(&value)
+            );
+            self.env_vars.insert(base_name.to_string(), storage);
+            if crate::builtins::set::shell_option_enabled(&self.env_vars, "allexport") {
+                self.mark_exported(base_name);
+            }
+            self.exit_code = 0;
+            return true;
+        }
         self.env_vars.insert(base_name.to_string(), value.clone());
         if crate::builtins::set::shell_option_enabled(&self.env_vars, "allexport") {
             self.mark_exported(base_name);

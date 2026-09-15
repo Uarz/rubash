@@ -466,6 +466,13 @@ impl Executor {
         // local to the subshell.
         let saved_variables = self.shell_state.variables.clone();
         let saved_positional_params = self.positional_params.clone();
+        // GNU execute_cmd.c runs `( list )` via execute_in_subshell ->
+        // make_child: the forked child owns its own cwd, so a `cd` in the
+        // body never reaches the parent. The body here runs in place on
+        // this executor, so the process directory is part of the subshell
+        // environment and must be restored like env_vars (niubash#100).
+        // Same convention as command substitution's saved_dir handling.
+        let saved_cwd = env::current_dir().ok();
         crate::builtins::trap::reset_for_subshell(&mut self.env_vars);
         let saved_loop_depth = self.loop_depth;
         self.subshell_depth.set(saved_depth + 1);
@@ -554,6 +561,9 @@ impl Executor {
                 self.pipestatus = saved_pipestatus;
                 self.subshell_depth.set(saved_depth);
                 self.loop_depth = saved_loop_depth;
+                if let Some(dir) = saved_cwd {
+                    let _ = env::set_current_dir(dir);
+                }
                 return Err(error);
             }
         };
@@ -574,6 +584,9 @@ impl Executor {
                 self.pipestatus = saved_pipestatus;
                 self.subshell_depth.set(saved_depth);
                 self.loop_depth = saved_loop_depth;
+                if let Some(dir) = &saved_cwd {
+                    let _ = env::set_current_dir(dir);
+                }
                 return Err(error);
             }
         };
@@ -584,6 +597,9 @@ impl Executor {
         self.pipestatus = saved_pipestatus;
         self.subshell_depth.set(saved_depth);
         self.loop_depth = saved_loop_depth;
+        if let Some(dir) = saved_cwd {
+            let _ = env::set_current_dir(dir);
+        }
         let finish_result = self.finish_compound_output_process_substitutions(group_outputs);
         self.exit_code = status;
         finish_result?;
