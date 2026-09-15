@@ -574,13 +574,41 @@ impl Executor {
     }
 
     pub(crate) fn diagnostic_prefix(&self) -> String {
-        let is_c = self.env_vars.contains_key("__RUBASH_IS_C");
+        // GNU error.c:75-86 (report_prolog): runtime errors (command not
+        // found, file not found, etc.) use only get_name_for_error() —
+        // BASH_SOURCE[0] or dollar_vars[0] — as the prolog name, with no
+        // input-stream segment. The "-c:" segment is exclusive to
+        // parser_error (error.c:300-316) which appends yy_input_name().
         if let (Some(script), Some(line)) = (
             self.env_vars.get("__RUBASH_SCRIPT_NAME"),
             self.env_vars.get("__RUBASH_CURRENT_LINE"),
         ) {
             // Errors inside eval carry the "eval:" segment and report the
             // caller-relative line, like GNU evalstring diagnostics.
+            if self.env_vars.contains_key("__RUBASH_EVAL_CONTEXT") {
+                return format!("{script}: eval: line {line}: ");
+            }
+            return format!("{script}: line {line}: ");
+        }
+
+        // GNU error.c:88-120 (get_name_for_error): without a script/$0
+        // context the prolog falls back to base_pathname(shell_name), i.e.
+        // the canonical shell name. Rubash reports as "bash"; the upstream
+        // suites normalize the baseline's invoked path to the same name.
+        "bash: ".to_string()
+    }
+
+    /// Parser/syntax-error diagnostic prefix. GNU parser_error (error.c:300-316)
+    /// appends yy_input_name() — the input stream name — when it differs from
+    /// get_name_for_error(). For `bash -c` the stream name is "-c", producing
+    /// "bash: -c: line N:". For script files the stream name equals the script
+    /// name, so no extra segment appears.
+    pub(crate) fn parser_diagnostic_prefix(&self) -> String {
+        let is_c = self.env_vars.contains_key("__RUBASH_IS_C");
+        if let (Some(script), Some(line)) = (
+            self.env_vars.get("__RUBASH_SCRIPT_NAME"),
+            self.env_vars.get("__RUBASH_CURRENT_LINE"),
+        ) {
             if self.env_vars.contains_key("__RUBASH_EVAL_CONTEXT") {
                 return format!("{script}: eval: line {line}: ");
             }
@@ -596,14 +624,20 @@ impl Executor {
             return "bash: -c: line 1: ".to_string();
         }
 
-        // GNU error.c:88-120 (get_name_for_error): without a script/$0
-        // context the prolog falls back to base_pathname(shell_name), i.e.
-        // the canonical shell name. Rubash reports as "bash"; the upstream
-        // suites normalize the baseline's invoked path to the same name.
         "bash: ".to_string()
     }
 
     pub fn diagnostic_prefix_for_line(&self, line: usize) -> String {
+        if let Some(script) = self.env_vars.get("__RUBASH_SCRIPT_NAME") {
+            return format!("{script}: line {line}: ");
+        }
+
+        "bash: ".to_string()
+    }
+
+    /// Parser/syntax-error diagnostic prefix for a specific line. Like
+    /// parser_diagnostic_prefix but for a caller-supplied line number.
+    pub fn parser_diagnostic_prefix_for_line(&self, line: usize) -> String {
         let is_c = self.env_vars.contains_key("__RUBASH_IS_C");
         if let Some(script) = self.env_vars.get("__RUBASH_SCRIPT_NAME") {
             if is_c {
@@ -649,7 +683,7 @@ impl Executor {
         let syntax_line = warning_line + 1;
         eprintln!(
             "{}syntax error: unexpected end of file from `(' command on line {start_line}",
-            self.diagnostic_prefix_for_line(syntax_line)
+            self.parser_diagnostic_prefix_for_line(syntax_line)
         );
     }
 }

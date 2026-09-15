@@ -517,7 +517,9 @@ fn char_len_at(line: &str, index: usize) -> usize {
 }
 
 pub fn has_unclosed_input_syntax(input: &str) -> bool {
-    has_unclosed_quotes(input) || has_unclosed_command_substitution(input)
+    has_unclosed_quotes(input)
+        || (has_unclosed_command_substitution(input)
+            && !skip::command_substitutions_balanced(input))
 }
 
 fn tokenize_plain(input: &str, posix: bool) -> Vec<Token> {

@@ -39,11 +39,11 @@ impl Executor {
 
         if let Some(message) = cmd.get_assignment("__RUBASH_COMPOUND_SYNTAX_ERROR__") {
             let message = bash_style_unexpected_token_message(message);
-            eprintln!("{}syntax error near {message}", self.diagnostic_prefix());
+            eprintln!("{}syntax error near {message}", self.parser_diagnostic_prefix());
             if let Some(source) = cmd.get_assignment("__RUBASH_PARSE_SOURCE__") {
                 eprintln!(
                     "{}`{}'",
-                    self.diagnostic_prefix(),
+                    self.parser_diagnostic_prefix(),
                     parse_error_source_display(source)
                 );
             }
@@ -55,7 +55,7 @@ impl Executor {
             // parse.y: an unclosed `name=(` compound assignment reports the
             // bare EOF diagnostic with status 1 and no source echo.
             self.mark_parse_error();
-            eprintln!("{}{}", self.diagnostic_prefix(), message);
+            eprintln!("{}{}", self.parser_diagnostic_prefix(), message);
             self.exit_code = 1;
             return Err(ExecuteError::ExitCode(1));
         }
@@ -76,21 +76,21 @@ impl Executor {
                 .map(String::as_str)
                 .unwrap_or("unexpected token");
             if message.starts_with("syntax error:") {
-                eprintln!("{}{}", self.diagnostic_prefix(), message);
+                eprintln!("{}{}", self.parser_diagnostic_prefix(), message);
                 if let Some(source) = cmd.get_assignment("__RUBASH_PARSE_SOURCE__") {
                     eprintln!(
                         "{}syntax error: `{}'",
-                        self.diagnostic_prefix(),
+                        self.parser_diagnostic_prefix(),
                         parse_error_source_display(source)
                     );
                 }
             } else {
                 let message = bash_style_unexpected_token_message(message);
-                eprintln!("{}syntax error near {message}", self.diagnostic_prefix(),);
+                eprintln!("{}syntax error near {message}", self.parser_diagnostic_prefix(),);
                 if let Some(source) = cmd.get_assignment("__RUBASH_PARSE_SOURCE__") {
                     eprintln!(
                         "{}`{}'",
-                        self.diagnostic_prefix(),
+                        self.parser_diagnostic_prefix(),
                         parse_error_source_display(source)
                     );
                 }
@@ -110,7 +110,7 @@ impl Executor {
             self.mark_parse_error();
             eprintln!(
                 "{}syntax error: unexpected EOF while looking for matching `)'",
-                self.diagnostic_prefix()
+                self.parser_diagnostic_prefix()
             );
             self.exit_code = 2;
             return Err(ExecuteError::ExitCode(2));
@@ -125,7 +125,7 @@ impl Executor {
             self.mark_parse_error();
             eprintln!(
                 "{}syntax error near unexpected token `('",
-                self.diagnostic_prefix()
+                self.parser_diagnostic_prefix()
             );
             self.exit_code = 2;
             return Err(ExecuteError::ExitCode(2));
@@ -145,7 +145,7 @@ impl Executor {
             self.mark_parse_error();
             eprintln!(
                 "{}syntax error near unexpected token `('",
-                self.diagnostic_prefix()
+                self.parser_diagnostic_prefix()
             );
             self.exit_code = 2;
             return Err(ExecuteError::ExitCode(2));
@@ -238,7 +238,7 @@ impl Executor {
             self.mark_parse_error();
             eprintln!(
                 "{}syntax error in command substitution",
-                self.diagnostic_prefix()
+                self.parser_diagnostic_prefix()
             );
             self.exit_code = 2;
             self.last_command_substitution_status.set(None);

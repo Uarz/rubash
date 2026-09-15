@@ -666,6 +666,21 @@ fn case_pattern_starts_with_esac_rest(delimiter: char, rest: &str) -> bool {
     while scan < chars.len() {
         let ch = chars[scan];
         if ch == ';' && chars.get(scan + 1) == Some(&';') {
+            // `;;` right after `esac)` can be either a case-list separator
+            // (esac is a pattern) or an arithmetic-for separator that lives
+            // *outside* the command substitution (esac is the keyword and `)`
+            // closes the `$(...)`).  GNU arith-for.tests:
+            //   for (( $(case x in x) esac);; )); do break; done
+            // After `;;`, a `)` (possibly following whitespace/newlines) closes
+            // an enclosing `$(...)` or `(( ))`; that cannot be a case-list
+            // context, so `esac` is the keyword, not a pattern.
+            let mut after = scan + 2;
+            while after < chars.len() && chars[after].is_whitespace() {
+                after += 1;
+            }
+            if chars.get(after) == Some(&')') {
+                return false;
+            }
             return true;
         }
         if ch == '_' || ch.is_ascii_alphanumeric() {
@@ -715,4 +730,334 @@ fn command_substitution_reserved_word_allows_next(word: &str) -> bool {
             | "done"
             | "esac"
     )
+}
+
+// ---------------------------------------------------------------------------
+// Corrected command-substitution balance check
+//
+// `has_unclosed_command_substitution` (continuation.rs, captain-exclusive) has
+// a false positive for `$(case x in x) esac)` when `esac)` is followed by `;;`
+// outside the command substitution: the case-depth tracker thinks `esac` is a
+// case pattern, not the keyword, so the closing `)` is never found.  The
+// actual tokenizer (`skip_cmd_subst` above) uses the corrected
+// `case_pattern_starts_with_esac_rest` and tokenizes the input correctly.
+//
+// These standalone functions provide a secondary balance check using the same
+// corrected case-depth tracking, so `has_unclosed_input_syntax` (mod.rs) can
+// override the continuation.rs false positive without editing continuation.rs.
+// ---------------------------------------------------------------------------
+
+/// Scan a `$((...))` arithmetic substitution starting just after `$((`
+/// (i.e. at `start`), returning the index past the closing `))` or `None`.
+fn skip_arith_substitution_corrected(chars: &[char], mut index: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut single = false;
+    let mut double = false;
+    while index < chars.len() {
+        let ch = chars[index];
+        if single {
+            if ch == '\'' {
+                single = false;
+            }
+            index += 1;
+            continue;
+        }
+        if double {
+            if ch == '\\' {
+                index += 2;
+                continue;
+            }
+            if ch == '"' {
+                double = false;
+            }
+            index += 1;
+            continue;
+        }
+        match ch {
+            '\'' if !double => single = !single,
+            '"' if !single => double = !double,
+            '\\' => {
+                index += 2;
+                continue;
+            }
+            '(' => depth += 1,
+            ')' if depth > 0 => depth -= 1,
+            ')' if chars.get(index + 1) == Some(&')') => {
+                return Some(index + 2);
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+/// Scan a backtick command substitution starting at the opening backtick,
+/// returning the index past the closing backtick or `None`.
+fn skip_backtick_corrected(chars: &[char], mut index: usize) -> Option<usize> {
+    index += 1;
+    while index < chars.len() {
+        if chars[index] == '\\' {
+            index += 2;
+            continue;
+        }
+        if chars[index] == '`' {
+            return Some(index + 1);
+        }
+        index += 1;
+    }
+    None
+}
+
+/// Standalone corrected `skip_parenthesized_unit`: given the char slice and
+/// the index of the opening `(` (the one right after `$`), return the index
+/// past the matching `)` or `None` if unbalanced.  Uses the corrected
+/// `update_command_substitution_case_depth` / `case_pattern_starts_with_esac_rest`.
+fn skip_parenthesized_unit_corrected(chars: &[char], open: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut index = open;
+    let mut single = false;
+    let mut double = false;
+    let mut case_depth = 0usize;
+    let mut word = String::new();
+    let mut word_boundary = true;
+    let mut current_word_boundary = true;
+    while index < chars.len() {
+        let ch = chars[index];
+        if single {
+            if ch == '\'' {
+                single = false;
+            }
+            index += 1;
+            continue;
+        }
+        if double {
+            if ch == '\\' {
+                index += 2;
+                continue;
+            }
+            if ch == '"' {
+                double = false;
+            }
+            index += 1;
+            continue;
+        }
+        // Skip heredoc body so its `)` chars stay opaque.
+        if ch == '<' && chars.get(index + 1) == Some(&'<') && chars.get(index + 2) != Some(&'<') {
+            let (next, _closes) =
+                super::heredoc_scan::skip_heredoc_in_chars_with_closure(chars, index);
+            index = next;
+            continue;
+        }
+        // Comment inside command substitution.
+        if ch == '#' && word_boundary {
+            while index + 1 < chars.len() && chars[index + 1] != '\n' {
+                index += 1;
+            }
+            word.clear();
+            word_boundary = true;
+            current_word_boundary = true;
+            index += 1;
+            continue;
+        }
+        let rest: String = chars[index..].iter().collect();
+        update_command_substitution_case_depth(
+            ch,
+            false,
+            false,
+            &mut word,
+            &mut case_depth,
+            &mut word_boundary,
+            &mut current_word_boundary,
+            &rest[1..],
+        );
+        match ch {
+            '\'' => single = true,
+            '"' => double = true,
+            '`' => {
+                if let Some(end) = skip_backtick_corrected(chars, index) {
+                    index = end;
+                    continue;
+                }
+            }
+            '$' if chars.get(index + 1) == Some(&'\'') => {
+                index += 2;
+                while index < chars.len() {
+                    if chars[index] == '\\' {
+                        index += 2;
+                        continue;
+                    }
+                    if chars[index] == '\'' {
+                        index += 1;
+                        break;
+                    }
+                    index += 1;
+                }
+                continue;
+            }
+            '$' if chars.get(index + 1) == Some(&'(') => {
+                if chars.get(index + 2) == Some(&'(') {
+                    if let Some(end) = skip_arith_substitution_corrected(chars, index + 3) {
+                        index = end;
+                        continue;
+                    }
+                } else if let Some(end) = skip_parenthesized_unit_corrected(chars, index + 1) {
+                    index = end;
+                    continue;
+                }
+            }
+            '(' if case_depth == 0 => depth += 1,
+            ')' if case_depth == 0 => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some(index + 1);
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+/// Return `true` if every top-level `$(...)` command substitution in `input`
+/// is balanced, using the corrected case-depth tracker.  This is a secondary
+/// check used to override false positives from `has_unclosed_command_substitution`
+/// (continuation.rs) without editing that captain-exclusive file.
+pub(crate) fn command_substitutions_balanced(input: &str) -> bool {
+    let chars: Vec<char> = input.chars().collect();
+    let mut index = 0usize;
+    let mut single = false;
+    let mut double = false;
+    let mut ansi_single = false;
+    let mut escaped = false;
+    let mut comment_start = true;
+    let mut in_comment = false;
+
+    while index < chars.len() {
+        let ch = chars[index];
+        if in_comment {
+            if ch == '\n' {
+                in_comment = false;
+                comment_start = true;
+            }
+            index += 1;
+            continue;
+        }
+        if escaped {
+            escaped = false;
+            comment_start = false;
+            index += 1;
+            continue;
+        }
+        if ch == '\n' && !single && !double && !ansi_single {
+            comment_start = true;
+            index += 1;
+            continue;
+        }
+        if ch == '#'
+            && !single
+            && !double
+            && !ansi_single
+            && comment_start
+        {
+            in_comment = true;
+            index += 1;
+            continue;
+        }
+        if ch.is_whitespace() && !single && !double && !ansi_single {
+            comment_start = true;
+            index += 1;
+            continue;
+        }
+        if ansi_single {
+            if ch == '\\' {
+                escaped = true;
+            } else if ch == '\'' {
+                ansi_single = false;
+            }
+            comment_start = false;
+            index += 1;
+            continue;
+        }
+        if ch == '\\' && !single {
+            escaped = true;
+            comment_start = false;
+            index += 1;
+            continue;
+        }
+        if ch == '$' && !single && !double && chars.get(index + 1) == Some(&'\'') {
+            ansi_single = true;
+            comment_start = false;
+            index += 2;
+            continue;
+        }
+        if ch == '\'' && !double && !ansi_single {
+            single = !single;
+            comment_start = false;
+            index += 1;
+            continue;
+        }
+        if ch == '"' && !single && !ansi_single {
+            double = !double;
+            comment_start = false;
+            index += 1;
+            continue;
+        }
+        if single {
+            index += 1;
+            continue;
+        }
+        // Skip ${...} parameter expansion so a `$(` inside it is not mistaken
+        // for a top-level command substitution.
+        if ch == '$' && chars.get(index + 1) == Some(&'{') && !double {
+            let body: String = chars[index + 2..].iter().collect();
+            let context = super::dolbrace::BraceContext {
+                outer_double_quote: double,
+                posix: false,
+                replacement_context: false,
+                initial_state: super::dolbrace::DolbraceState::Param,
+            };
+            if let Some(scan) = super::dolbrace::scan_braced_parameter_body(&body, context) {
+                index += 2 + body[..scan.end].chars().count();
+                comment_start = false;
+                continue;
+            }
+            // Unterminated ${...}: fall through; the input is unclosed.
+            return false;
+        }
+        // Skip backtick command substitution.
+        if ch == '`' && !double {
+            if let Some(end) = skip_backtick_corrected(&chars, index) {
+                index = end;
+                comment_start = false;
+                continue;
+            }
+            return false;
+        }
+        if ch == '$' && !single && chars.get(index + 1) == Some(&'(') {
+            if let Some(end) = skip_parenthesized_unit_corrected(&chars, index + 1) {
+                index = end;
+                comment_start = false;
+                continue;
+            }
+            // Check for $((...)) arithmetic.
+            if chars.get(index + 2) == Some(&'(') {
+                if let Some(end) =
+                    skip_arith_substitution_corrected(&chars, index + 3)
+                {
+                    index = end;
+                    comment_start = false;
+                    continue;
+                }
+            }
+            // Genuinely unbalanced command substitution.
+            return false;
+        }
+        if !single && !double && !ansi_single {
+            comment_start = false;
+        }
+        index += 1;
+    }
+    true
 }
