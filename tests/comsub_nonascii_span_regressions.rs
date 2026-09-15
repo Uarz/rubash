@@ -86,7 +86,10 @@ fn multibyte_heredoc_delimiter_inside_command_substitution() {
         rubash("echo \"$(cat <<E\u{60a0}F\nhi\nE\u{60a0}F\n)\""),
         "hi\n"
     );
-    assert_eq!(rubash("x=$(cat <<中文\nbody\n中文\n); echo \"$x\""), "body\n");
+    assert_eq!(
+        rubash("x=$(cat <<中文\nbody\n中文\n); echo \"$x\""),
+        "body\n"
+    );
 }
 
 #[test]
