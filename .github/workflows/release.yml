@@ -142,7 +142,10 @@ jobs:
 
           version="${tag#v}"
           cargo_pkgid="$(cargo pkgid)"
-          cargo_version="${cargo_pkgid##*@}"
+          # cargo pkgid returns "name@version" for registry packages and
+          # "path+file:///...#version" for path packages. Extract the
+          # version after either @ or #, whichever appears last.
+          cargo_version="${cargo_pkgid##*[@#]}"
           if [[ "$version" != "$cargo_version" ]]; then
             echo "Tag $tag does not match Cargo.toml version $cargo_version" >&2
             exit 1
@@ -207,7 +210,7 @@ jobs:
           fi
           version="${tag#v}"
           cargo_pkgid="$(cargo pkgid)"
-          cargo_version="${cargo_pkgid##*@}"
+          cargo_version="${cargo_pkgid##*[@#]}"
           if [[ "$version" != "$cargo_version" ]]; then
             echo "Tag $tag does not match Cargo.toml version $cargo_version" >&2
             exit 1
