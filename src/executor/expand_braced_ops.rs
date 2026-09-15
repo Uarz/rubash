@@ -5,7 +5,6 @@ impl Executor {
         &self,
         name: &str,
     ) -> Option<String> {
-
         if let Some((var_name, word)) = split_once_outside_subscript_str(name, ":=") {
             if self
                 .parameter_operator_value(var_name)
@@ -78,7 +77,8 @@ impl Executor {
             // IFS join with IFS[0] inside the value (exp11.sub ${c=${*/}}).
             let old = super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.get());
             super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.set(true));
-            let result = self.parameter_operator_value(var_name)
+            let result = self
+                .parameter_operator_value(var_name)
                 .map(|value| shell_safe_value(&value))
                 .unwrap_or_else(|| self.expand_parameter_word(word));
             super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.set(old));
@@ -117,7 +117,9 @@ impl Executor {
         if let Some((array_name, default)) = name
             .strip_suffix("[@]")
             .or_else(|| name.strip_suffix("[*]"))
-            .and_then(|array_name| split_once_outside_subscript(array_name, '-').map(|_| (array_name, "")))
+            .and_then(|array_name| {
+                split_once_outside_subscript(array_name, '-').map(|_| (array_name, ""))
+            })
         {
             return Some(
                 self.parameter_array_storage(array_name)

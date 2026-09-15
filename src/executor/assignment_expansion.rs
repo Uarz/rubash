@@ -1016,11 +1016,7 @@ impl Executor {
         let inner = value.strip_prefix('(')?.strip_suffix(')')?.trim();
         let unquoted_inner = strip_matching_quotes(inner);
         let is_quoted = unquoted_inner != inner;
-        let parameter = if is_quoted {
-            &unquoted_inner
-        } else {
-            inner
-        };
+        let parameter = if is_quoted { &unquoted_inner } else { inner };
         let value = if let Some(name) = single_unquoted_parameter_name(parameter) {
             self.shell_variable_value(name).unwrap_or_default()
         } else if let Some(name) = parameter

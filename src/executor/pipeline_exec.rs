@@ -1290,7 +1290,10 @@ impl Executor {
             "echo" => {
                 let args = self.expand_pipeline_stage_arg_words(command, 1);
                 let mut output = Vec::new();
-                crate::builtins::echo::write_echo_decoded(args.iter().map(String::as_str), &mut output)?;
+                crate::builtins::echo::write_echo_decoded(
+                    args.iter().map(String::as_str),
+                    &mut output,
+                )?;
                 Ok(Some((
                     crate::executor::substitution_metadata::bytes_to_shell_text(&output),
                     String::new(),
@@ -1423,7 +1426,8 @@ impl Executor {
                     return Ok(Some((output, stderr, status)));
                 }
                 let output = if show_nonprinting {
-                    let bytes = crate::executor::external_file_builtins::cat_v_filter(input.as_bytes());
+                    let bytes =
+                        crate::executor::external_file_builtins::cat_v_filter(input.as_bytes());
                     crate::executor::substitution_metadata::bytes_to_shell_text(&bytes)
                 } else if let Some(input) = self.stdin_string_for_command_mut(command) {
                     input

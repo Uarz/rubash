@@ -525,7 +525,11 @@ impl Executor {
             // error token must come from the post-expansion form (e.g.
             // `${HOME:`echo }`}` → `}` not `` `echo }` ``).
             let saved = self.arithmetic_last_error_expression.borrow().clone();
-            let expression = if saved.is_empty() { expression.to_string() } else { saved };
+            let expression = if saved.is_empty() {
+                expression.to_string()
+            } else {
+                saved
+            };
             let expression = expression.as_str();
             let mut message = crate::executor::arithmetic::arithmetic_error_message(
                 expression,
@@ -533,7 +537,9 @@ impl Executor {
                 &self.env_vars,
             )
             .unwrap_or_else(|| {
-                format!("{expression}: syntax error in expression (error token is \"{expression}\")")
+                format!(
+                    "{expression}: syntax error in expression (error token is \"{expression}\")"
+                )
             });
             // GNU expr.c: when the expression is entirely an operator with no
             // left operand (e.g. `${#:%}` where the offset is `%`), the parser
@@ -545,24 +551,18 @@ impl Executor {
             // parse-failed-entirely case (trailing token == entire expression)
             // and fix the message to match GNU.
             if message.contains("arithmetic syntax error in expression") {
-                if let Some(token) =
-                    crate::executor::arithmetic::trailing_input_token(expression)
-                {
+                if let Some(token) = crate::executor::arithmetic::trailing_input_token(expression) {
                     if token.trim() == expression.trim() {
-                        let command_context = self
-                            .env_vars
-                            .get("__RUBASH_IS_C")
-                            .map(String::as_str)
-                            != Some("1");
+                        let command_context =
+                            self.env_vars.get("__RUBASH_IS_C").map(String::as_str) != Some("1");
                         let operand_expected = if command_context {
                             "arithmetic syntax error: operand expected"
                         } else {
                             "syntax error: operand expected"
                         };
                         let display = expression.trim_start();
-                        message = format!(
-                            "{display}: {operand_expected} (error token is \"{token}\")"
-                        );
+                        message =
+                            format!("{display}: {operand_expected} (error token is \"{token}\")");
                     }
                 }
             }

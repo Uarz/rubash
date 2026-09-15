@@ -202,8 +202,11 @@ impl ConditionalArithParser<'_> {
                         index: 0,
                     });
                 }
-                let (value, _cat) =
-                    eval_mutable_arith_value_with_random(&stripped, self.env_vars, self.random_state);
+                let (value, _cat) = eval_mutable_arith_value_with_random(
+                    &stripped,
+                    self.env_vars,
+                    self.random_state,
+                );
                 Some(ArithLValue::Indexed {
                     name: name.clone(),
                     index: value?,

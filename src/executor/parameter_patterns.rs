@@ -98,7 +98,8 @@ impl Executor {
     ) -> Option<String> {
         let pattern = self.expand_parameter_pattern_word(pattern);
         if matches!(var_name, "@" | "*") {
-            let result = self.positional_params
+            let result = self
+                .positional_params
                 .iter()
                 .map(|value| {
                     remove_parameter_pattern(value, &pattern, operation, self.extglob_enabled())

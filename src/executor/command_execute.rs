@@ -39,7 +39,10 @@ impl Executor {
 
         if let Some(message) = cmd.get_assignment("__RUBASH_COMPOUND_SYNTAX_ERROR__") {
             let message = bash_style_unexpected_token_message(message);
-            eprintln!("{}syntax error near {message}", self.parser_diagnostic_prefix());
+            eprintln!(
+                "{}syntax error near {message}",
+                self.parser_diagnostic_prefix()
+            );
             if let Some(source) = cmd.get_assignment("__RUBASH_PARSE_SOURCE__") {
                 eprintln!(
                     "{}`{}'",
@@ -86,7 +89,10 @@ impl Executor {
                 }
             } else {
                 let message = bash_style_unexpected_token_message(message);
-                eprintln!("{}syntax error near {message}", self.parser_diagnostic_prefix(),);
+                eprintln!(
+                    "{}syntax error near {message}",
+                    self.parser_diagnostic_prefix(),
+                );
                 if let Some(source) = cmd.get_assignment("__RUBASH_PARSE_SOURCE__") {
                     eprintln!(
                         "{}`{}'",

@@ -165,9 +165,7 @@ pub(in crate::executor) fn matching_parameter_brace_in_context(
             depth += 1;
             continue;
         }
-        if ch == '}'
-            && (replacement_context || (!single && (!double || depth > 0 || !saw_quote)))
-        {
+        if ch == '}' && (replacement_context || (!single && (!double || depth > 0 || !saw_quote))) {
             if depth == 0 {
                 return Some(index);
             }
@@ -268,10 +266,7 @@ pub(in crate::executor) fn command_substitution_spans_whole_word(word: &str) -> 
 /// The nested `$(...)` has its own independent quote state so a `"` inside
 /// it does not affect the caller's `double` flag.  Mirrors GNU
 /// `xparse_dolparen` (parse.y) and `extract_command_substitution` (subst.c).
-fn skip_nested_dollar_paren_whole_word(
-    chars: &[(usize, char)],
-    start: usize,
-) -> Option<usize> {
+fn skip_nested_dollar_paren_whole_word(chars: &[(usize, char)], start: usize) -> Option<usize> {
     let mut depth = 1usize;
     let mut cursor = start + 2; // skip `$(``
     let mut single = false;
@@ -310,7 +305,9 @@ fn skip_nested_dollar_paren_whole_word(
             cursor += 1;
             continue;
         }
-        if !single && !double && ch == '$'
+        if !single
+            && !double
+            && ch == '$'
             && chars.get(cursor + 1).is_some_and(|(_, next)| *next == '(')
             && chars.get(cursor + 2).is_none_or(|(_, next)| *next != '(')
         {

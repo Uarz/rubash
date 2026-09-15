@@ -45,7 +45,6 @@ impl Executor {
         offset: isize,
         length: Option<isize>,
     ) -> String {
-
         let selected = if offset == 0 {
             let mut params = Vec::with_capacity(self.positional_params.len() + 1);
             params.push(self.script_name_value());
@@ -138,9 +137,7 @@ impl Executor {
             // `$?`, not `$#` with the `?` error operator. Only the bare `#?`
             // form (no error word) is the length-of-special case; `${#?word}`
             // stays the `?` operator.
-            if is_parameter_error_name(var_name)
-                && !(var_name == "#" && error_word.is_empty())
-            {
+            if is_parameter_error_name(var_name) && !(var_name == "#" && error_word.is_empty()) {
                 return self
                     .parameter_operator_value(var_name)
                     .map(|value| shell_safe_value(&value))
@@ -270,7 +267,6 @@ impl Executor {
         word: &str,
         context: SubstitutionQuoteContext,
     ) -> String {
-
         // Bash 5.3 (parser.h FUNSUB_CHAR): a whitespace-led `${ command; }` /
         // `${|command;}` word is a nofork command substitution, not a
         // parameter form. The operator split_once parsing below would treat
@@ -396,9 +392,7 @@ impl Executor {
             // `$?`, not `$#` with the `?` error operator. Only the bare `#?`
             // form (no error word) is the length-of-special case; `${#?word}`
             // stays the `?` operator.
-            if is_parameter_error_name(var_name)
-                && !(var_name == "#" && error_word.is_empty())
-            {
+            if is_parameter_error_name(var_name) && !(var_name == "#" && error_word.is_empty()) {
                 return self
                     .parameter_operator_value(var_name)
                     .map(|value| shell_safe_value(&value))
@@ -422,14 +416,12 @@ impl Executor {
                         // (subst.c:4487), which includes `:=`. This makes
                         // unquoted $* with null IFS join with IFS[0] inside
                         // the value (exp11.sub ${c=${*/}}).
-                        let old = super::expand_braced_replacement::ASSIGNMENT_RHS
-                            .with(|f| f.get());
-                        super::expand_braced_replacement::ASSIGNMENT_RHS
-                            .with(|f| f.set(true));
+                        let old =
+                            super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.get());
+                        super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.set(true));
                         let result =
                             self.expand_embedded_parameters_mut_with_context(&word, context);
-                        super::expand_braced_replacement::ASSIGNMENT_RHS
-                            .with(|f| f.set(old));
+                        super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.set(old));
                         result
                     });
             }
@@ -447,14 +439,12 @@ impl Executor {
                         // (subst.c:4487). This makes unquoted $* with null
                         // IFS join with IFS[0] inside the value
                         // (exp11.sub ${c=${*/}}).
-                        let old = super::expand_braced_replacement::ASSIGNMENT_RHS
-                            .with(|f| f.get());
-                        super::expand_braced_replacement::ASSIGNMENT_RHS
-                            .with(|f| f.set(true));
+                        let old =
+                            super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.get());
+                        super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.set(true));
                         let result =
                             self.expand_embedded_parameters_mut_with_context(&word, context);
-                        super::expand_braced_replacement::ASSIGNMENT_RHS
-                            .with(|f| f.set(old));
+                        super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.set(old));
                         result
                     });
             }
@@ -612,7 +602,8 @@ impl Executor {
             &decoded,
             SubstitutionQuoteContext::DoubleQuoted,
         );
-        let unescaped = unescape_parameter_operator_result(&expanded, SubstitutionQuoteContext::DoubleQuoted);
+        let unescaped =
+            unescape_parameter_operator_result(&expanded, SubstitutionQuoteContext::DoubleQuoted);
         unescaped.replace(PROTECTED_LITERAL_BACKSLASH, "\\")
     }
 

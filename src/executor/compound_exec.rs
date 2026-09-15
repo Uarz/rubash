@@ -295,16 +295,15 @@ impl Executor {
             restore_for_line(self);
             self.run_debug_trap(&arithmetic.init)?;
         }
-        if !arithmetic.init.trim().is_empty()
-            && {
-                // GNU execute_cmd.c:3201 (eval_arith_for_expr): if `set -x`
-                // is on, print `(( expr ))` before evaluating each for-loop
-                // expression (init, test, update).  Use the raw expression to
-                // preserve original whitespace (e.g. `i++ ` trailing space).
-                self.xtrace_print_arith_cmd(&arithmetic.init_metadata.expression);
-                self.eval_arithmetic_command_value(&arithmetic.init).is_none()
-            }
-        {
+        if !arithmetic.init.trim().is_empty() && {
+            // GNU execute_cmd.c:3201 (eval_arith_for_expr): if `set -x`
+            // is on, print `(( expr ))` before evaluating each for-loop
+            // expression (init, test, update).  Use the raw expression to
+            // preserve original whitespace (e.g. `i++ ` trailing space).
+            self.xtrace_print_arith_cmd(&arithmetic.init_metadata.expression);
+            self.eval_arithmetic_command_value(&arithmetic.init)
+                .is_none()
+        } {
             self.report_arithmetic_error_raw_display(&arithmetic.init_metadata.expression);
             self.exit_code = 1;
             arithmetic_failed = true;

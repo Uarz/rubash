@@ -558,15 +558,10 @@ pub(in crate::executor) fn scan_substitution_spans(raw: &str) -> Vec<Substitutio
                     // the outer `inner_double` state is preserved.
                     if inner_double
                         && inner == '$'
-                        && chars
-                            .get(cursor + 1)
-                            .is_some_and(|(_, next)| *next == '(')
-                        && chars
-                            .get(cursor + 2)
-                            .is_none_or(|(_, next)| *next != '(')
+                        && chars.get(cursor + 1).is_some_and(|(_, next)| *next == '(')
+                        && chars.get(cursor + 2).is_none_or(|(_, next)| *next != '(')
                     {
-                        if let Some(next_cursor) =
-                            skip_nested_dollar_paren_in_span(&chars, cursor)
+                        if let Some(next_cursor) = skip_nested_dollar_paren_in_span(&chars, cursor)
                         {
                             cursor = next_cursor;
                             continue;
@@ -643,25 +638,19 @@ fn skip_nested_dollar_paren_in_span(chars: &[(usize, char)], start: usize) -> Op
         // inside it does not toggle our `double` flag.
         if double
             && ch == '$'
-            && chars
-                .get(cursor + 1)
-                .is_some_and(|(_, next)| *next == '(')
-            && chars
-                .get(cursor + 2)
-                .is_none_or(|(_, next)| *next != '(')
+            && chars.get(cursor + 1).is_some_and(|(_, next)| *next == '(')
+            && chars.get(cursor + 2).is_none_or(|(_, next)| *next != '(')
         {
             if let Some(next_cursor) = skip_nested_dollar_paren_in_span(chars, cursor) {
                 cursor = next_cursor;
                 continue;
             }
         }
-        if !single && !double && ch == '$'
-            && chars
-                .get(cursor + 1)
-                .is_some_and(|(_, next)| *next == '(')
-            && chars
-                .get(cursor + 2)
-                .is_none_or(|(_, next)| *next != '(')
+        if !single
+            && !double
+            && ch == '$'
+            && chars.get(cursor + 1).is_some_and(|(_, next)| *next == '(')
+            && chars.get(cursor + 2).is_none_or(|(_, next)| *next != '(')
         {
             depth += 1;
             cursor += 2;

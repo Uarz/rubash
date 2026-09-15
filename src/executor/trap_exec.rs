@@ -53,8 +53,7 @@ impl Executor {
             args.iter().map(String::as_str),
             &self.diagnostic_prefix(),
             &mut stderr,
-        )?
-        {
+        )? {
             crate::builtins::eval::EvalAction::Complete(status) => {
                 self.write_buffered_builtin_output(cmd, &[], &stderr)?;
                 self.exit_code = status;

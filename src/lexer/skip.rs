@@ -955,12 +955,7 @@ pub(crate) fn command_substitutions_balanced(input: &str) -> bool {
             index += 1;
             continue;
         }
-        if ch == '#'
-            && !single
-            && !double
-            && !ansi_single
-            && comment_start
-        {
+        if ch == '#' && !single && !double && !ansi_single && comment_start {
             in_comment = true;
             index += 1;
             continue;
@@ -1043,9 +1038,7 @@ pub(crate) fn command_substitutions_balanced(input: &str) -> bool {
             }
             // Check for $((...)) arithmetic.
             if chars.get(index + 2) == Some(&'(') {
-                if let Some(end) =
-                    skip_arith_substitution_corrected(&chars, index + 3)
-                {
+                if let Some(end) = skip_arith_substitution_corrected(&chars, index + 3) {
                     index = end;
                     comment_start = false;
                     continue;

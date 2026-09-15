@@ -1321,21 +1321,20 @@ fn collect_command_substitution_source(
         // update_command_substitution_case_depth clears it.
         let word_for_alias = word.clone();
         let boundary_for_alias = current_word_boundary;
-        let alias_case_delta = if !single && !double && !word_for_alias.is_empty()
-            && boundary_for_alias
-        {
-            if let Some(alias) = aliases.get(&word_for_alias) {
-                match alias.value.split_whitespace().next() {
-                    Some("case") => Some(1i32),
-                    Some("esac") => Some(-1i32),
-                    _ => None,
+        let alias_case_delta =
+            if !single && !double && !word_for_alias.is_empty() && boundary_for_alias {
+                if let Some(alias) = aliases.get(&word_for_alias) {
+                    match alias.value.split_whitespace().next() {
+                        Some("case") => Some(1i32),
+                        Some("esac") => Some(-1i32),
+                        _ => None,
+                    }
+                } else {
+                    None
                 }
             } else {
                 None
-            }
-        } else {
-            None
-        };
+            };
         update_command_substitution_case_depth(
             source_ch,
             single,

@@ -96,7 +96,9 @@ pub(in crate::executor) fn command_has_warned_heredoc(cmd: &CommandNode) -> bool
 }
 
 pub(in crate::executor) fn strip_unterminated_heredoc_marker(body: &str) -> &str {
-    let stripped = body.strip_prefix('\x1f').or_else(|| body.strip_prefix('\x1e'));
+    let stripped = body
+        .strip_prefix('\x1f')
+        .or_else(|| body.strip_prefix('\x1e'));
     match stripped {
         Some(s) => s,
         None => body,

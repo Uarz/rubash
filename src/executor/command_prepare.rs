@@ -903,7 +903,8 @@ impl Executor {
         }
         if assignment_builtin_receives_assignment_word(cmd, index, word) {
             return vec![strip_assignment_builtin_command_subst_quotes(
-                &strip_ifs_protection_markers(&expanded), raw,
+                &strip_ifs_protection_markers(&expanded),
+                raw,
             )];
         }
         if let Some(formatted) = self.expand_unquoted_parameter_transform_word(word) {
@@ -1084,8 +1085,7 @@ impl Executor {
                     let joined = self.positional_params.join(&separator);
                     let saved = std::mem::take(&mut self.positional_params);
                     self.positional_params = vec![joined];
-                    let values =
-                        self.quoted_positional_at_word_values(alternate, None);
+                    let values = self.quoted_positional_at_word_values(alternate, None);
                     self.positional_params = saved;
                     if let Some(values) = values {
                         let result: Vec<String> = values

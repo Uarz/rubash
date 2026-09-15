@@ -24,12 +24,21 @@ pub(super) struct ConditionalArithParser<'a> {
 #[derive(Clone)]
 pub(super) enum ArithLValue {
     Scalar(String),
-    Indexed { name: String, index: i128 },
+    Indexed {
+        name: String,
+        index: i128,
+    },
     /// Array element with a raw subscript expression that must be evaluated
     /// lazily *after* the RHS of an assignment, matching GNU expr.c:1395-1401
     /// where `expr_streval` is skipped when the next token is `=`. The subscript
     /// is re-evaluated at bind time, so side effects in the RHS (e.g.
     /// `a[n]=++n`) are visible to the subscript.
-    IndexedRaw { name: String, subscript: String },
-    Assoc { name: String, key: String },
+    IndexedRaw {
+        name: String,
+        subscript: String,
+    },
+    Assoc {
+        name: String,
+        key: String,
+    },
 }

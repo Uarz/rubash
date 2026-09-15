@@ -55,26 +55,24 @@ pub(in crate::executor) fn split_shell_words_with_quote_info(source: &str) -> Ve
                     }
                     continue;
                 }
-                Some('"') => {
-                    match chars.peek().copied() {
-                        Some(escaped @ ('\\' | '"' | '$' | '`' | '\n')) => {
-                            chars.next();
-                            match escaped {
-                                '\\' => current.push('\x14'),
-                                '"' => current.push('\x18'),
-                                '$' => current.push('\x1f'),
-                                '`' => current.push('\x1a'),
-                                '\n' => {}
-                                _ => unreachable!(),
-                            }
-                            continue;
+                Some('"') => match chars.peek().copied() {
+                    Some(escaped @ ('\\' | '"' | '$' | '`' | '\n')) => {
+                        chars.next();
+                        match escaped {
+                            '\\' => current.push('\x14'),
+                            '"' => current.push('\x18'),
+                            '$' => current.push('\x1f'),
+                            '`' => current.push('\x1a'),
+                            '\n' => {}
+                            _ => unreachable!(),
                         }
-                        _ => {
-                            current.push(ch);
-                            continue;
-                        }
+                        continue;
                     }
-                }
+                    _ => {
+                        current.push(ch);
+                        continue;
+                    }
+                },
                 _ => {
                     // Inside single quotes: fall through to the match block so
                     // push_single_quoted_shell_word_char converts \ to \x15,

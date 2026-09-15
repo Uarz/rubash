@@ -135,8 +135,8 @@ impl Executor {
                 let raw_display = raw_expression
                     .map(|raw| raw.trim_start_matches([' ', '\t']))
                     .unwrap_or(expression);
-                let raw_division =
-                    arithmetic_division_by_zero_token(raw_display).map(|token| (raw_display, token.to_string()));
+                let raw_division = arithmetic_division_by_zero_token(raw_display)
+                    .map(|token| (raw_display, token.to_string()));
                 match raw_division {
                     Some((display, token)) => {
                         self.report_arithmetic_division_by_zero_raw(&display, &token)
@@ -145,8 +145,7 @@ impl Executor {
                         // GNU expr.c:484-485: trailing input after a
                         // successful sub-expression parse. Use the raw
                         // display so the trailing blank survives.
-                        if crate::executor::arithmetic::trailing_input_token(raw_display)
-                            .is_some()
+                        if crate::executor::arithmetic::trailing_input_token(raw_display).is_some()
                         {
                             self.report_arithmetic_error_raw_display(raw_display);
                         } else {

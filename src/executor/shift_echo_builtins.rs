@@ -270,8 +270,7 @@ fn recho_display_arg(arg: &str) -> String {
     // valid UTF-8 and write_buffered_builtin_output decodes them back to
     // raw bytes at the output boundary.
     use crate::executor::substitution_metadata::{
-        encode_raw_byte_marker, RAW_BYTE_MARKER_ESCAPE, RAW_BYTE_MARKER_FIRST,
-        RAW_BYTE_MARKER_LAST,
+        encode_raw_byte_marker, RAW_BYTE_MARKER_ESCAPE, RAW_BYTE_MARKER_FIRST, RAW_BYTE_MARKER_LAST,
     };
     let mut output = String::new();
     let mut chars = arg.chars().peekable();
@@ -285,7 +284,8 @@ fn recho_display_arg(arg: &str) -> String {
                     output.push(ch);
                 }
                 Some(next_ch)
-                    if (RAW_BYTE_MARKER_FIRST..=RAW_BYTE_MARKER_LAST).contains(&(next_ch as u32)) =>
+                    if (RAW_BYTE_MARKER_FIRST..=RAW_BYTE_MARKER_LAST)
+                        .contains(&(next_ch as u32)) =>
                 {
                     chars.next();
                     let byte = (next_ch as u32 - RAW_BYTE_MARKER_FIRST) as u8;

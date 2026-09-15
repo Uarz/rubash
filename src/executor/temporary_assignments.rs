@@ -534,10 +534,7 @@ impl Executor {
             && is_marked_var(&self.env_vars, ASSOC_VARS, base_name)
             && !value.starts_with('\x1d')
         {
-            let storage = format!(
-                "([\"0\"]={})",
-                quote_assoc_storage_value(&value)
-            );
+            let storage = format!("([\"0\"]={})", quote_assoc_storage_value(&value));
             self.env_vars.insert(base_name.to_string(), storage);
             if crate::builtins::set::shell_option_enabled(&self.env_vars, "allexport") {
                 self.mark_exported(base_name);

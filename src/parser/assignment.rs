@@ -403,7 +403,10 @@ pub(super) fn collect_compound_assignment(
         }
         if matches!(
             tokens[i].kind,
-            TokenKind::Background | TokenKind::Pipe | TokenKind::And | TokenKind::Or
+            TokenKind::Background
+                | TokenKind::Pipe
+                | TokenKind::And
+                | TokenKind::Or
                 | TokenKind::Semicolon
         ) {
             return None;

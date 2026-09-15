@@ -1,5 +1,5 @@
-use super::*;
 use super::storage::quote_assoc_display_key;
+use super::*;
 use crate::executor::{
     assoc_hash_ordered_entries, assoc_hash_ordered_values, assoc_keys,
     eval_conditional_arith_value_with_writes, DECLARED_UNSET_VARS, NAMEREF_VARS,
@@ -124,7 +124,10 @@ impl Executor {
         // evaluate the arithmetic in a cloned env (losing side effects like
         // count++). Instead, detect $((...)) and evaluate directly with
         // eval_conditional_arith_value_with_writes which captures side effects.
-        let key = if key.strip_prefix("$((").is_some_and(|rest| rest.strip_suffix("))").is_some()) {
+        let key = if key
+            .strip_prefix("$((")
+            .is_some_and(|rest| rest.strip_suffix("))").is_some())
+        {
             let expr = key
                 .strip_prefix("$((")
                 .unwrap()
@@ -137,10 +140,9 @@ impl Executor {
                 .replace("$-", "0");
             let (result, writes) = eval_conditional_arith_value_with_writes(&expr, &self.env_vars);
             if !writes.is_empty() {
-                crate::executor::expand_braced_indices::PENDING_SUBSCRIPT_WRITES
-                    .with(|w| {
-                        w.borrow_mut().extend(writes);
-                    });
+                crate::executor::expand_braced_indices::PENDING_SUBSCRIPT_WRITES.with(|w| {
+                    w.borrow_mut().extend(writes);
+                });
             }
             match result {
                 Some(v) => v.to_string(),
@@ -155,10 +157,9 @@ impl Executor {
         let Some(index) = ({
             let (result, writes) = eval_conditional_arith_value_with_writes(&key, &self.env_vars);
             if !writes.is_empty() {
-                crate::executor::expand_braced_indices::PENDING_SUBSCRIPT_WRITES
-                    .with(|w| {
-                        w.borrow_mut().extend(writes);
-                    });
+                crate::executor::expand_braced_indices::PENDING_SUBSCRIPT_WRITES.with(|w| {
+                    w.borrow_mut().extend(writes);
+                });
             }
             result
         }) else {

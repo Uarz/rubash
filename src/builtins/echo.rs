@@ -121,9 +121,7 @@ fn remove_residual_shell_quotes(arg: &str, unescape_alias_quotes: bool) -> Strin
     if arg.starts_with('$') && arg.contains('\x15') {
         let body = arg[1..].replace('\x15', "\\");
         let decoded = crate::lexer::decode_ansi_c_quoted(&body);
-        return decoded
-            .replace('\x1f', "$")
-            .replace('\x1a', "`");
+        return decoded.replace('\x1f', "$").replace('\x1a', "`");
     }
 
     arg.to_string()

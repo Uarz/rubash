@@ -246,19 +246,21 @@ impl Executor {
         if described || self.execute_command_describe(&cmd.words[1..]) {
             return Ok(Ok(()));
         }
-        Ok(match crate::builtins::command::execute(&cmd.words[1..], &self.diagnostic_prefix())? {
-            crate::builtins::command::CommandAction::Complete(status) => {
-                self.exit_code = status;
-                Ok(())
-            }
-            crate::builtins::command::CommandAction::Execute {
-                words,
-                use_standard_path,
-            } => {
-                let mut command = cmd.clone();
-                command.words = words;
-                self.execute_command_without_aliases_with_path(&command, use_standard_path)
-            }
-        })
+        Ok(
+            match crate::builtins::command::execute(&cmd.words[1..], &self.diagnostic_prefix())? {
+                crate::builtins::command::CommandAction::Complete(status) => {
+                    self.exit_code = status;
+                    Ok(())
+                }
+                crate::builtins::command::CommandAction::Execute {
+                    words,
+                    use_standard_path,
+                } => {
+                    let mut command = cmd.clone();
+                    command.words = words;
+                    self.execute_command_without_aliases_with_path(&command, use_standard_path)
+                }
+            },
+        )
     }
 }

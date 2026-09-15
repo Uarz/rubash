@@ -1,7 +1,6 @@
 use super::{
     ARRAY_VARS, ASSOC_VARS, DECLARED_UNSET_VARS, EXECUTION_FAILURE, EXECUTION_SUCCESS,
-    EXPORTED_VARS, INTEGER_VARS, LOWERCASE_VARS, NAMEREF_VARS, READONLY_VARS,
-    UPPERCASE_VARS,
+    EXPORTED_VARS, INTEGER_VARS, LOWERCASE_VARS, NAMEREF_VARS, READONLY_VARS, UPPERCASE_VARS,
 };
 use std::collections::HashMap;
 use std::env;
@@ -62,7 +61,11 @@ where
         if name_status != EXECUTION_SUCCESS {
             // Preserve error statuses > EX_SHERRBASE (256) so the executor can
             // set special_builtin_failed; fall back to EXECUTION_FAILURE.
-            status = if name_status > 256 { name_status } else { EXECUTION_FAILURE };
+            status = if name_status > 256 {
+                name_status
+            } else {
+                EXECUTION_FAILURE
+            };
         }
     }
 
@@ -96,11 +99,11 @@ where
                 'n' => options.nameref = true,
                 other => {
                     writeln!(
-                    stderr,
-                    "{}unset: -{}: invalid option",
-                    diagnostic_prefix(env_vars),
-                    other
-                )?;
+                        stderr,
+                        "{}unset: -{}: invalid option",
+                        diagnostic_prefix(env_vars),
+                        other
+                    )?;
                     writeln!(stderr, "unset: usage: unset [-f] [-v] [-n] [name ...]")?;
                     // GNU set.def:855 returns EX_USAGE (258 > EX_SHERRBASE).
                     return Ok(Err(EX_USAGE_ORIG));

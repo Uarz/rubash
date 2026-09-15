@@ -468,20 +468,11 @@ fn expand_array_parameter(expr: &str, variables: &HashMap<String, String>) -> Op
     if is_at {
         let elements: Vec<String> = entries
             .values()
-            .map(|v| {
-                format!(
-                    "{ARRAY_FIELD_SPLIT_MARKER}'{}'",
-                    v.replace('\'', "\\'")
-                )
-            })
+            .map(|v| format!("{ARRAY_FIELD_SPLIT_MARKER}'{}'", v.replace('\'', "\\'")))
             .collect();
         Some(elements.join(" "))
     } else {
-        let joined = entries
-            .values()
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(" ");
+        let joined = entries.values().cloned().collect::<Vec<_>>().join(" ");
         Some(format!("'{}'", joined.replace('\'', "\\'")))
     }
 }

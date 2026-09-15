@@ -24,9 +24,7 @@ use names::{
     check_selfref, declare_base_name, valid_array_reference, valid_declare_name,
     valid_nameref_value,
 };
-use storage::{
-    format_array_value, format_assoc_value, indexed_array_entries, parse_assoc_words,
-};
+use storage::{format_array_value, format_assoc_value, indexed_array_entries, parse_assoc_words};
 
 const EXECUTION_SUCCESS: i32 = 0;
 const EXECUTION_FAILURE: i32 = 1;
@@ -525,9 +523,7 @@ where
             // `(one two three)': invalid variable name, then :70 reports the
             // array rejection for the same variable).
             if (arrays.contains(lhs) || assocs.contains(lhs))
-                && !(namerefs.contains(lhs)
-                    && value.is_empty()
-                    && !variables.contains_key(lhs))
+                && !(namerefs.contains(lhs) && value.is_empty() && !variables.contains_key(lhs))
             {
                 writeln!(
                     stderr,

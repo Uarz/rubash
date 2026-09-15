@@ -30,7 +30,12 @@ enum DescribeMode {
 pub fn execute(args: &[String], prefix: &str) -> io::Result<CommandAction> {
     let mut stdout = io::stdout().lock();
     let mut stderr = io::stderr().lock();
-    execute_with_io(args.iter().map(String::as_str), prefix, &mut stdout, &mut stderr)
+    execute_with_io(
+        args.iter().map(String::as_str),
+        prefix,
+        &mut stdout,
+        &mut stderr,
+    )
 }
 
 pub(crate) fn execute_with_io<'a, I, W, E>(
@@ -248,7 +253,8 @@ mod tests {
     fn run(args: &[&str]) -> (CommandAction, String, String) {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
-        let action = execute_with_io(args.iter().copied(), "rubash: ", &mut stdout, &mut stderr).unwrap();
+        let action =
+            execute_with_io(args.iter().copied(), "rubash: ", &mut stdout, &mut stderr).unwrap();
 
         (
             action,

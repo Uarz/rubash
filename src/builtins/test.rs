@@ -561,7 +561,9 @@ fn virtual_device_test(op: &str, operand: &str) -> Option<bool> {
     // the test-suite context these fds are open and writable.
     if matches!(
         operand,
-        "/dev/stdout" | "/proc/self/fd/1" | "/dev/fd/1"
+        "/dev/stdout"
+            | "/proc/self/fd/1"
+            | "/dev/fd/1"
             | "/dev/stderr"
             | "/proc/self/fd/2"
             | "/dev/fd/2"

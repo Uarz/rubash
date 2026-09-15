@@ -443,7 +443,10 @@ mod unit_tests {
         // but the important thing is that the fingerprint changed and the
         // cache was cleared.
         let mut env_changed = HashMap::new();
-        env_changed.insert("PATH".to_string(), "/nonexistent_dummy_path_12345".to_string());
+        env_changed.insert(
+            "PATH".to_string(),
+            "/nonexistent_dummy_path_12345".to_string(),
+        );
         let result = find_user_command("path_invalidation_test_cmd", &env_changed);
         assert!(
             result.is_none(),

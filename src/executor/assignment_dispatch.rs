@@ -18,16 +18,12 @@ impl Executor {
             return Ok(false);
         }
 
-        if !cmd
-            .words
-            .iter()
-            .any(|word| {
-                matches!(word.as_str(), ";" | "<" | ">" | ">>" | "|" | "&")
-                    || word.contains('=')
-                    || word.contains("$(")
-                    || word.contains('`')
-            })
-        {
+        if !cmd.words.iter().any(|word| {
+            matches!(word.as_str(), ";" | "<" | ">" | ">>" | "|" | "&")
+                || word.contains('=')
+                || word.contains("$(")
+                || word.contains('`')
+        }) {
             return Ok(false);
         }
 

@@ -48,7 +48,11 @@ impl Executor {
         if result.is_ok()
             && self.special_builtin_failed.get()
             && self.posix_mode_enabled()
-            && self.env_vars.get("__RUBASH_INTERACTIVE").map(String::as_str) != Some("1")
+            && self
+                .env_vars
+                .get("__RUBASH_INTERACTIVE")
+                .map(String::as_str)
+                != Some("1")
         {
             return Err(ExecuteError::ExitCode(self.exit_code));
         }

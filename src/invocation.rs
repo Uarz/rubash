@@ -39,10 +39,7 @@ impl ShellInvocation {
             // Combined short flags ("-ne", "-lc", "-ilc") are a single-dash
             // concept; long options ("--rcfile") must never be exploded even
             // when every letter happens to be a whitelisted flag char.
-            if let Some(short_flags) = arg
-                .strip_prefix('-')
-                .filter(|rest| !rest.starts_with('-'))
-            {
+            if let Some(short_flags) = arg.strip_prefix('-').filter(|rest| !rest.starts_with('-')) {
                 if short_flags.len() > 1
                     && !short_flags.contains('o')
                     && !short_flags.contains('O')
