@@ -487,12 +487,13 @@ impl Iterator for StorageWordIter<'_> {
                 escaped = true;
                 continue;
             }
-            // GNU parse.y:5368-5397 read_token_word + expand_word_internal
-            // quote removal: a backslash outside any quote removes itself
-            // and keeps the next char literal (e.g. `\for` -> `for`, `\'b`
-            // -> `'b`). Inside double quotes the backslash is kept for
-            // unquote_storage_value to handle CBSDQUOTE semantics.
+            // GNU parse.y:5368-5397 read_token_word: a backslash outside
+            // any quote removes itself and keeps the next char literal. We
+            // keep the backslash in the token so pathname_expand_array_token
+            // can see it and skip glob expansion (array.tests:245
+            // `\*` must stay literal). unquote_storage_value removes it.
             if ch == '\\' && !in_double && !in_single {
+                word.push(ch);
                 escaped = true;
                 continue;
             }
@@ -612,7 +613,21 @@ pub(in crate::executor) fn unquote_storage_value(value: &str) -> String {
         // unambiguously walker markers.
         let mut decoded = String::new();
         let mut chars = value.chars().peekable();
+        let mut escaped = false;
         while let Some(ch) = chars.next() {
+            if escaped {
+                // GNU expand_word_internal quote removal: backslash outside
+                // any quote removes itself and keeps the next char literal.
+                decoded.push(ch);
+                escaped = false;
+                continue;
+            }
+            if ch == '\\' {
+                // GNU parse.y:5368-5397 read_token_word: backslash outside
+                // any quote removes itself; the next char is kept literal.
+                escaped = true;
+                continue;
+            }
             if ch as u32 == crate::executor::substitution_metadata::RAW_BYTE_MARKER_ESCAPE {
                 if let Some(&next) = chars.peek() {
                     if (crate::executor::substitution_metadata::RAW_BYTE_MARKER_FIRST

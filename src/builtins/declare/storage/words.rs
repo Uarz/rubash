@@ -38,10 +38,12 @@ impl Iterator for StorageWordIter<'_> {
                 escaped = true;
                 continue;
             }
-            // GNU parse.y:5368-5397 read_token_word + expand_word_internal
-            // quote removal: a backslash outside any quote removes itself
-            // and keeps the next char literal (e.g. `\'b` -> `'b`).
+            // GNU parse.y:5368-5397 read_token_word: a backslash outside
+            // any quote removes itself and keeps the next char literal. We
+            // keep the backslash in the token so pathname expansion can see
+            // it and skip globbing; unquote_storage_value removes it later.
             if ch == '\\' && !in_double && !in_single {
+                word.push(ch);
                 escaped = true;
                 continue;
             }
@@ -78,11 +80,29 @@ pub(in crate::builtins::declare) fn unquote_storage_value(value: &str) -> String
         .strip_prefix('"')
         .and_then(|value| value.strip_suffix('"'))
     else {
-        return value
+        // Bare value (not wrapped in quotes): GNU expand_word_internal
+        // quote removal removes backslashes outside any quote, keeping
+        // the next char literal (e.g. `\for` -> `for`, `\*` -> `*`).
+        let bare = value
             .strip_prefix('\'')
             .and_then(|value| value.strip_suffix('\''))
-            .unwrap_or(value)
-            .to_string();
+            .unwrap_or(value);
+        let mut decoded = String::new();
+        let mut escaped = false;
+        for ch in bare.chars() {
+            if escaped {
+                decoded.push(ch);
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else {
+                decoded.push(ch);
+            }
+        }
+        if escaped {
+            decoded.push('\\');
+        }
+        return decoded;
     };
 
     let mut unquoted = String::new();
