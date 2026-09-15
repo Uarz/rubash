@@ -296,9 +296,14 @@ impl Executor {
             self.run_debug_trap(&arithmetic.init)?;
         }
         if !arithmetic.init.trim().is_empty()
-            && self
-                .eval_arithmetic_command_value(&arithmetic.init)
-                .is_none()
+            && {
+                // GNU execute_cmd.c:3201 (eval_arith_for_expr): if `set -x`
+                // is on, print `(( expr ))` before evaluating each for-loop
+                // expression (init, test, update).  Use the raw expression to
+                // preserve original whitespace (e.g. `i++ ` trailing space).
+                self.xtrace_print_arith_cmd(&arithmetic.init_metadata.expression);
+                self.eval_arithmetic_command_value(&arithmetic.init).is_none()
+            }
         {
             self.report_arithmetic_error_raw_display(&arithmetic.init_metadata.expression);
             self.exit_code = 1;
@@ -316,6 +321,9 @@ impl Executor {
             }
             if !arithmetic.test.trim().is_empty() {
                 let _t = super::exec_profile::PhaseTimer::new(&super::exec_profile::P_FOR_TEST);
+                // GNU execute_cmd.c:3201: xtrace before test expression.
+                // Use raw expression to preserve original whitespace.
+                self.xtrace_print_arith_cmd(&arithmetic.test_metadata.expression);
                 match self.eval_arithmetic_command_value(&arithmetic.test) {
                     Some(0) => break,
                     Some(_) => {}
@@ -358,6 +366,9 @@ impl Executor {
             }
             if !arithmetic.update.trim().is_empty() {
                 let _t = super::exec_profile::PhaseTimer::new(&super::exec_profile::P_FOR_UPDATE);
+                // GNU execute_cmd.c:3201: xtrace before update expression.
+                // Use raw expression to preserve original whitespace.
+                self.xtrace_print_arith_cmd(&arithmetic.update_metadata.expression);
                 if self
                     .eval_arithmetic_command_value(&arithmetic.update)
                     .is_none()

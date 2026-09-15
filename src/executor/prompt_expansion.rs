@@ -404,6 +404,19 @@ impl Executor {
         parts.extend(cmd.words.iter().cloned());
         parts.join(" ")
     }
+
+    /// GNU print_cmd.c:986 `xtrace_print_arith_cmd`: print `(( expr ))` when
+    /// `set -x` is on.  Called before evaluating each arithmetic expression
+    /// (both `(( ... ))` commands and `for ((init; test; update))` loops).
+    /// The expression is the already-expanded string that will be evaluated.
+    /// GNU's `expand_arith_string` strips leading whitespace; trailing
+    /// whitespace is preserved (e.g. `i++  ` from `for ((...; ...; i++ ))`).
+    pub(in crate::executor) fn xtrace_print_arith_cmd(&self, expression: &str) {
+        if self.xtrace_enabled() {
+            let prefix = self.xtrace_prefix();
+            eprintln!("{prefix}(( {} ))", expression.trim_start());
+        }
+    }
 }
 
 fn prompt_release_version(env_vars: &HashMap<String, String>) -> String {
