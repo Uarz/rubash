@@ -323,6 +323,15 @@ pub enum ExecuteError {
     Continue(usize),
     Return(i32),
     UnknownBuiltin(String),
+    /// `exit N` called from a lastpipe stage (shopt -s lastpipe) runs in
+    /// the current shell, so it must exit the current shell — not just set
+    /// the pipeline's exit status.  This variant propagates through
+    /// `execute_simple_pipeline` / `execute_pipeline_command` without being
+    /// caught by the pipeline-status match in `execute_ast_inner`, and the
+    /// top-level caller converts it back to `ExitCode(N)`.  GNU reference:
+    /// execute_cmd.c:2758 `execute_command_internal(cmd, ...)` runs the
+    /// lastpipe stage in the current shell; `exit` longjmps to top level.
+    LastpipeExit(i32),
 }
 
 impl std::fmt::Display for ExecuteError {
@@ -342,6 +351,7 @@ impl std::fmt::Display for ExecuteError {
             ExecuteError::UnknownBuiltin(name) => {
                 write!(f, "rubash: {}: builtin command not found", name)
             }
+            ExecuteError::LastpipeExit(code) => write!(f, "exit code: {}", code),
         }
     }
 }

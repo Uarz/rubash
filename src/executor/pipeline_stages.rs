@@ -29,7 +29,18 @@ impl Executor {
         self.stderr_capture = saved_stderr_capture;
         restore_optional_env_var(&mut self.env_vars, FUNCTION_STDIN, old_stdin);
         restore_optional_env_var(&mut self.env_vars, FUNCTION_STDIN_OFFSET, old_stdin_offset);
-        result?;
+        // GNU execute_cmd.c:2758: the lastpipe stage runs in the current
+        // shell.  `exit N` must therefore exit the current shell, not just
+        // set the pipeline's exit status.  Convert ExitCode to LastpipeExit
+        // so it propagates past the pipeline-status match in execute_ast_inner.
+        match result {
+            Ok(()) => {}
+            Err(ExecuteError::ExitCode(code)) => {
+                self.exit_code = code;
+                return Err(ExecuteError::LastpipeExit(code));
+            }
+            Err(error) => return Err(error),
+        }
 
         Ok((
             crate::executor::substitution_metadata::bytes_to_shell_text(&output),

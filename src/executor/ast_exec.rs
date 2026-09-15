@@ -499,6 +499,14 @@ impl Executor {
                         }
                         self.exit_code = code;
                     }
+                    Err(ExecuteError::LastpipeExit(code)) => {
+                        // Issue #74 (G2): `exit N` in a lastpipe stage runs in
+                        // the current shell (shopt -s lastpipe), so it must
+                        // exit the current shell — not just set the pipeline's
+                        // exit status.  Propagate to the top level.
+                        self.exit_code = code;
+                        return Err(ExecuteError::ExitCode(code));
+                    }
                     Err(error) => return Err(error),
                 }
                 if command.inverted {

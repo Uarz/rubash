@@ -1265,16 +1265,14 @@ impl Executor {
             "true" | ":" => Ok(Some((String::new(), String::new(), 0))),
             "false" => Ok(Some((String::new(), String::new(), 1))),
             "echo" => {
-                let mut args = self.expand_pipeline_stage_arg_words(command, 1);
-                let newline = !args.first().is_some_and(|arg| arg == "-n");
-                if !newline {
-                    args.remove(0);
-                }
-                let mut output = args.join(" ");
-                if newline {
-                    output.push('\n');
-                }
-                Ok(Some((output, String::new(), 0)))
+                let args = self.expand_pipeline_stage_arg_words(command, 1);
+                let mut output = Vec::new();
+                crate::builtins::echo::write_echo_decoded(args.iter().map(String::as_str), &mut output)?;
+                Ok(Some((
+                    crate::executor::substitution_metadata::bytes_to_shell_text(&output),
+                    String::new(),
+                    0,
+                )))
             }
             "printf" => {
                 let args: Vec<String> = self.expand_pipeline_stage_arg_words(command, 1);
