@@ -65,6 +65,10 @@ impl Executor {
         let mut subshell_pipestatus: Option<Vec<i32>> = None;
         let mut subshell_depth: Option<usize> = None;
         let mut subshell_stdin: Option<(String, String)> = None;
+        // The subshell body runs in place on this executor, so the process
+        // cwd is part of the subshell environment too (niubash#100): a `cd`
+        // inside `f() ( cd X )`-style flat subshells must not leak out.
+        let mut subshell_cwd: Option<PathBuf> = None;
         while index < ast.commands.len() {
             let command = &ast.commands[index];
             {
@@ -86,6 +90,9 @@ impl Executor {
                     }
                     if let Some(saved_depth) = subshell_depth.take() {
                         self.subshell_depth.set(saved_depth);
+                    }
+                    if let Some(saved_dir) = subshell_cwd.take() {
+                        let _ = env::set_current_dir(saved_dir);
                     }
                 }
                 index += 1;
@@ -697,6 +704,7 @@ impl Executor {
 
             if command.subshell && subshell_env.is_none() {
                 subshell_env = Some(self.env_vars.clone());
+                subshell_cwd = env::current_dir().ok();
                 crate::builtins::trap::reset_for_subshell(&mut self.env_vars);
                 subshell_pipestatus = Some(self.pipestatus.clone());
                 let old_depth = self.subshell_depth.get();
@@ -828,6 +836,9 @@ impl Executor {
                     if let Some(saved_depth) = subshell_depth.take() {
                         self.subshell_depth.set(saved_depth);
                     }
+                    if let Some(saved_dir) = subshell_cwd.take() {
+                        let _ = env::set_current_dir(saved_dir);
+                    }
                     // A malformed subshell can leave the command list with
                     // no closing marker.  In that case there is no boundary
                     // to advance to; continuing would execute the same
@@ -897,6 +908,9 @@ impl Executor {
                 }
                 if let Some(saved_depth) = subshell_depth.take() {
                     self.subshell_depth.set(saved_depth);
+                }
+                if let Some(saved_dir) = subshell_cwd.take() {
+                    let _ = env::set_current_dir(saved_dir);
                 }
             }
 

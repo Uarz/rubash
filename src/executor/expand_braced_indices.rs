@@ -80,15 +80,27 @@ impl Executor {
                 .to_string();
         }
         if let Some((array_name, index)) = parse_array_integer_subscript(var_name) {
-            return self
-                .env_vars
-                .get(array_name)
-                .and_then(|value| {
-                    resolve_indexed_array_subscript(value, index)
-                        .and_then(|index| array_value_at(value, index))
-                })
-                .map(|value| parameter_char_length(&value).to_string())
-                .unwrap_or_else(|| "0".to_string());
+            // GNU subst.c:7561-7569: negative subscripts to indexed arrays
+            // count back from end; if still negative, err_badarraysub is
+            // called and the expansion returns empty (array.tests:232-240
+            // ${#xpath[-10]} with max_index=5 -> -4 -> bad array subscript,
+            // echo produces an empty line, not "0").
+            if let Some(value) = self.env_vars.get(array_name) {
+                if let Some(resolved) = resolve_indexed_array_subscript(value, index) {
+                    if let Some(element) = array_value_at(value, resolved) {
+                        return parameter_char_length(&element).to_string();
+                    }
+                } else if index < 0 {
+                    eprintln!(
+                        "{}[{}]: bad array subscript",
+                        self.diagnostic_prefix(),
+                        index
+                    );
+                    self.arithmetic_nonfatal_error.set(true);
+                    return String::new();
+                }
+            }
+            return "0".to_string();
         }
         if let Some((array_name, index)) = parse_array_numeric_subscript(var_name) {
             return self
