@@ -147,11 +147,58 @@ pub(in crate::executor) fn quote_array_value(value: &str) -> String {
     )
 }
 
+/// shquote.c sh_contains_shell_metas (376-407): returns 1 if the string
+/// contains shell metacharacters that force quoting of a bare word.
+pub(in crate::executor) fn sh_contains_shell_metas(value: &str) -> bool {
+    let chars: Vec<char> = value.chars().collect();
+    for (index, ch) in chars.iter().enumerate() {
+        match ch {
+            ' ' | '\t' | '\n' | '\'' | '"' | '\\' | '|' | '&' | ';' | '(' | ')' | '<' | '>'
+            | '!' | '{' | '}' | '*' | '[' | '?' | ']' | '^' | '$' | '`' => return true,
+            '~' => {
+                if index == 0 || chars[index - 1] == '=' || chars[index - 1] == ':' {
+                    return true;
+                }
+            }
+            '#' => {
+                if index == 0 {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// assoc.c assoc_to_assign key rule (429-437): `$'...'` for keys holding
+/// non-printing characters (ansic_shouldquote), `sh_double_quote` for keys
+/// with shell metas, `sh_double_quote` for a bare `*` or `@` key
+/// (ALL_ELEMENT_SUB), otherwise the bare key.
+pub(in crate::executor) fn quote_assoc_display_key(key: &str) -> String {
+    if ansic_shouldquote(key) {
+        return ansic_quote(key);
+    }
+    if sh_contains_shell_metas(key) {
+        return format!(
+            "\"{}\"",
+            key.replace('\\', "\\\\")
+                .replace('"', "\\\\\"")
+                .replace('$', "\\$")
+                .replace('\u{60}', "\\`")
+        );
+    }
+    if key.len() == 1 && matches!(key, "*" | "@") {
+        return format!("\"{key}\"");
+    }
+    key.to_string()
+}
+
 /// strtrans.c ansic_shouldquote (341-361): dollar-single-quote quoting is
 /// value holds a non-printing byte. High-bit bytes follow the UTF-8-locale
 /// multibyte path (351-354): a printable decoded character is fine, an
 /// undecodable or non-printing one forces quoting.
-fn ansic_shouldquote(value: &str) -> bool {
+pub(in crate::executor) fn ansic_shouldquote(value: &str) -> bool {
     let bytes = value.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
@@ -175,7 +222,7 @@ fn ansic_shouldquote(value: &str) -> bool {
 /// escapes, backslash and single-quote escaped, printable bytes (and whole
 /// printable UTF-8 characters under a UTF-8 locale, 266-282) literal, and
 /// every other byte as a three-digit octal escape (291-294).
-fn ansic_quote(value: &str) -> String {
+pub(in crate::executor) fn ansic_quote(value: &str) -> String {
     let bytes = value.as_bytes();
     let mut out = String::with_capacity(4 * bytes.len() + 4);
     out.push_str("$'");

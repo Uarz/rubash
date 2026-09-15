@@ -1,6 +1,8 @@
 use super::*;
+use super::storage::quote_assoc_display_key;
 use crate::executor::{
-    assoc_hash_ordered_entries, assoc_hash_ordered_values, assoc_keys, NAMEREF_VARS,
+    assoc_hash_ordered_entries, assoc_hash_ordered_values, assoc_keys, DECLARED_UNSET_VARS,
+    NAMEREF_VARS,
 };
 
 impl Executor {
@@ -47,15 +49,29 @@ impl Executor {
         };
 
         let flags = self.variable_assignment_flags(name, true);
+        // GNU array_var_assignment (subst.c:8690-8691): a declared-unset
+        // (invisible) array that still has a value cell drops the `=()` body
+        // just like a missing cell. Rubash stores declared-unset arrays in
+        // env_vars with a marker, so check the marker here.
+        if is_marked_var(&self.env_vars, DECLARED_UNSET_VARS, name) {
+            return format!("declare -{flags} {name}");
+        }
         if is_marked_var(&self.env_vars, ASSOC_VARS, name) {
             let entries = assoc_hash_ordered_entries(value);
             if entries.is_empty() {
-                return format!("declare -{flags} {name}");
+                // GNU array_var_assignment (subst.c:8693-8697): a set-but-empty
+                // array gets `=()` (val == 0 but var_isset); only invisible/unset
+                // arrays drop the body.
+                return format!("declare -{flags} {name}=()");
             }
             let rendered = entries
                 .into_iter()
                 .map(|(key, value)| {
-                    format!("[{}]={}", quote_assoc_key(&key), quote_array_value(&value))
+                    format!(
+                        "[{}]={}",
+                        quote_assoc_display_key(&key),
+                        quote_array_value(&value)
+                    )
                 })
                 .collect::<Vec<_>>()
                 .join(" ");
@@ -69,9 +85,11 @@ impl Executor {
                 .collect::<Vec<_>>()
                 .join(" ");
             if rendered.is_empty() {
-                // GNU: a set-but-empty array also drops the `=()` body
-                // (new-exp15: `declare -ia foo=()` -> `declare -ai foo`).
-                return format!("declare -{flags} {name}");
+                // GNU array_var_assignment (subst.c:8693-8697): a set-but-empty
+                // array gets `=()` (val == 0 but var_isset); only invisible/unset
+                // arrays drop the body (new-exp15 uses the scalar ${foo@A} form
+                // which goes through string_var_assignment, not this path).
+                return format!("declare -{flags} {name}=()");
             }
             return format!("declare -{flags} {name}=({rendered})");
         }
