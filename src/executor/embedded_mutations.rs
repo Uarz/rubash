@@ -512,7 +512,7 @@ impl Executor {
                         continue;
                     }
 
-                    let source = collect_command_substitution_source(&mut chars);
+                    let source = collect_command_substitution_source(&mut chars, &self.aliases);
                     let value = protect_command_substitution_output(
                         &self.expand_command_substitution_mut_with_context(&source, context),
                     );
@@ -1153,6 +1153,7 @@ fn collect_dollar_bracket_arithmetic_expansion(
 
 fn collect_command_substitution_source(
     chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    aliases: &std::collections::HashMap<String, crate::builtins::alias::Alias>,
 ) -> String {
     let mut depth = 1usize;
     let mut source = String::new();
@@ -1246,6 +1247,31 @@ fn collect_command_substitution_source(
         }
 
         let rest = chars.clone().collect::<String>();
+        // GNU parse.y alias_expand_token: inside a command substitution
+        // body, alias expansion happens while parsing, so an alias for
+        // `case` (e.g. `alias switch=case`) is recognized as the `case`
+        // reserved word.  collect_command_substitution_source must track
+        // case_depth through such aliases so a `)` in a case pattern does
+        // not prematurely close the substitution (comsub5.sub: `echo $(
+        // switch foo in foo) echo ok 2;; esac )`).  Check the word before
+        // update_command_substitution_case_depth clears it.
+        let word_for_alias = word.clone();
+        let boundary_for_alias = current_word_boundary;
+        let alias_case_delta = if !single && !double && !word_for_alias.is_empty()
+            && boundary_for_alias
+        {
+            if let Some(alias) = aliases.get(&word_for_alias) {
+                match alias.value.split_whitespace().next() {
+                    Some("case") => Some(1i32),
+                    Some("esac") => Some(-1i32),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         update_command_substitution_case_depth(
             source_ch,
             single,
@@ -1256,6 +1282,13 @@ fn collect_command_substitution_source(
             &mut current_word_boundary,
             &rest,
         );
+        if let Some(delta) = alias_case_delta {
+            if delta > 0 {
+                case_depth += 1;
+            } else {
+                case_depth = case_depth.saturating_sub(1);
+            }
+        }
         match source_ch {
             '\'' if !double => {
                 single = !single;
