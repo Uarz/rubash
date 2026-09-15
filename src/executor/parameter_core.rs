@@ -162,14 +162,8 @@ impl Executor {
             {
                 self.arithmetic_fatal_error.set(true);
                 if !self.arithmetic_expansion_error.replace(true) {
-                    // GNU expr.c evalerror echoes the post-expansion expression
-                    // (the text between (( and )) is expanded like a double-
-                    // quoted string before evaluation).  Use the expanded form
-                    // so the error token matches GNU byte-for-byte (e.g.
-                    // `\$iv` -> `$iv` -> `` when iv is unset).
-                    let expanded = self.expand_arithmetic_special_parameters(expression);
-                    let message = crate::executor::arithmetic::arithmetic_error_message(&expanded, true, &self.env_vars)
-                        .unwrap_or_else(|| format!("{expanded}: syntax error in expression (error token is \"{expanded}\")"));
+                    let message = crate::executor::arithmetic::arithmetic_error_message(expression, true, &self.env_vars)
+                        .unwrap_or_else(|| format!("{expression}: syntax error in expression (error token is \"{expression}\")"));
                     eprintln!("{}{}", self.diagnostic_prefix(), message);
                 }
                 return String::new();
