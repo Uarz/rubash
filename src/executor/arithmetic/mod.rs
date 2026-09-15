@@ -386,8 +386,8 @@ impl Executor {
         // (`\"`) must also survive as literal `"` — the walker strips bare
         // `"` via toggle mode, so `\"` → `\` + removed quote. \x18 is the
         // walker's literal-double-quote marker.
-        let protected = expression.replace("\\\"", "\x18").replace('\'', "\x17");
-        self.expand_embedded_parameters(&protected)
+        let protected = expression.replace("\\\"", "\x18").replace('\'', "\x17").replace("\\$", "\x1f");
+        self.expand_embedded_parameters(&protected).replace("\x1f", "$")
     }
 }
 
