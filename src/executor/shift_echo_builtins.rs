@@ -133,9 +133,6 @@ impl Executor {
         &mut self,
         cmd: &CommandNode,
     ) -> Result<(), ExecuteError> {
-        if std::env::var("RUBASH_DBG_ECHO").is_ok() {
-            eprintln!("DBG execute_echo ENTRY: words={:?}", cmd.words);
-        }
         self.exit_code = 0;
         // TODO(redir.c/execute_cmd.c/builtins/echo.def): Generalize builtin
         // redirection. This covers upstream source tests that create sourced
@@ -180,14 +177,7 @@ impl Executor {
             echo_args.iter().map(String::as_str),
             &mut output,
         )?;
-        if std::env::var("RUBASH_DBG_ECHO").is_ok() {
-            eprintln!("DBG echo: words={:?} output={:?} redirects={:?} redirect_out={:?}", cmd.words, String::from_utf8_lossy(&output), cmd.redirects.len(), cmd.redirect_out.is_some());
-        }
-        let ordered_result = self.write_ordered_command_output(cmd, &output, &[])?;
-        if std::env::var("RUBASH_DBG_ECHO").is_ok() {
-            eprintln!("DBG echo: write_ordered returned {}", ordered_result);
-        }
-        if ordered_result {
+        if self.write_ordered_command_output(cmd, &output, &[])? {
             return Ok(());
         }
 

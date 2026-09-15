@@ -59,7 +59,9 @@ pub(in crate::executor) fn command_has_no_effect(cmd: &CommandNode) -> bool {
         && cmd.subshell_command.is_none()
         && cmd.case_command.is_none()
         && cmd.function_command.is_none()
-        && cmd.brace_group.is_none()
+        && cmd.brace_group.as_ref().map_or(true, |bg| {
+            bg.body.iter().all(command_has_no_effect)
+        })
 }
 
 pub(in crate::executor) fn normalize_leading_assignment_words(cmd: &mut CommandNode) {

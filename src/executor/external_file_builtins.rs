@@ -508,6 +508,36 @@ impl Executor {
             }
         }
 
+        // GNU cat: when file operands are present, read from them. Only fall
+        // through to stdin when there are no file operands. This matters after
+        // `exec 0</dev/null` which stores empty bytes in fd 0: without this
+        // ordering, `cat file` would see the empty stdin and return early
+        // instead of reading the file operand.
+        if cat_has_file_operands(cmd) {
+            let mut output = Vec::new();
+            for word in cat_file_operands(cmd) {
+                let target = self.expand_word(word);
+                match fs::read(shell_path_to_windows(&target, &self.env_vars)) {
+                    Ok(bytes) => output.extend(bytes),
+                    Err(_) => {
+                        let mut stderr = Vec::new();
+                        writeln!(
+                            &mut stderr,
+                            "{}cat: {}: No such file or directory",
+                            self.diagnostic_prefix(),
+                            target
+                        )?;
+                        self.write_buffered_builtin_output(cmd, &[], &stderr)?;
+                        self.exit_code = 1;
+                        return Ok(true);
+                    }
+                }
+            }
+            self.write_cat_output(cmd, &output)?;
+            self.exit_code = 0;
+            return Ok(true);
+        }
+
         if let Some(input) = self.stdin_string_for_command_mut(cmd) {
             self.write_cat_output(cmd, input.as_bytes())?;
             self.exit_code = 0;

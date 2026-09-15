@@ -578,6 +578,19 @@ impl Executor {
                             return Err(ExecuteError::ExitCode(code));
                         }
                         self.exit_code = code;
+                        // GNU execute_cmd.c:1170-1175 (cm_group path) and
+                        // execute_connection (execute_cmd.c:2300+) for the
+                        // final command in an &&/|| list: if errexit is
+                        // active and the list's exit status is non-zero,
+                        // jump_to_top_level (ERREXIT) exits the shell.
+                        if self.errexit_enabled()
+                            && self.errexit_is_active()
+                            && self.suppress_errexit == 0
+                            && self.exit_code != 0
+                            && !command.inverted
+                        {
+                            return Err(ExecuteError::ExitCode(self.exit_code));
+                        }
                     }
                     Err(error) => return Err(error),
                 }
@@ -846,6 +859,20 @@ impl Executor {
                 self.exit_code = invert_exit_status(self.exit_code);
             }
             self.set_pipestatus([self.exit_code]);
+
+            // GNU execute_cmd.c:1004-1018 (simple command errexit): after a
+            // simple command finishes, if errexit is active and the command's
+            // exit status is non-zero, jump_to_top_level (ERREXIT) exits the
+            // shell.
+            if self.errexit_enabled()
+                && self.errexit_is_active()
+                && self.suppress_errexit == 0
+                && self.exit_code != 0
+                && !command.inverted
+                && command.and_or().is_none()
+            {
+                return Err(ExecuteError::ExitCode(self.exit_code));
+            }
 
             // Execute ERR trap if command failed and not in &&/||/! context
             // (trap_exec.rs maybe_run_error_trap; GNU execute_cmd.c).

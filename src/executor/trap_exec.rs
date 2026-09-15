@@ -61,9 +61,6 @@ impl Executor {
                 Ok(())
             }
             crate::builtins::eval::EvalAction::Execute(source) => {
-                if std::env::var("RUBASH_DBG_EVAL").is_ok() {
-                    eprintln!("DBG eval words={:?} src={:?}", cmd.words, source);
-                }
                 self.write_buffered_builtin_output(cmd, &[], &stderr)?;
                 let source = eval_source_for_reparse(&source);
                 // GNU parse.y re-reads the eval string as parser input, so
