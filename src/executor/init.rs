@@ -54,6 +54,29 @@ impl Executor {
 
         let (imported_functions, imported_function_def_infos) =
             import_exported_functions_from_env(&env_vars);
+        // GNU variables.c:397-446 (initialize_shell_variables,
+        // FUNCTION_IMPORT): a successfully imported exported function
+        // becomes a shell function, NOT a variable — the BASH_FUNC_name%%
+        // entry vanishes from the variable table and is re-exported to
+        // children through the function export path
+        // (make_func_export_array, variables.c:5124). Leaving it in
+        // env_vars made `export -p` print `declare -x BASH_FUNC_x%%=() ...`
+        // lines whose source is a syntax error (niubash issue #102).
+        // A FAILED import keeps the raw entry: its name still fails the
+        // valid-identifier filters, so listings stay clean while children
+        // still receive the original value (GNU bind_invalid_envvar,
+        // variables.c:3307).
+        let imported_fn_env_names: Vec<String> = env_vars
+            .keys()
+            .filter(|env_name| {
+                imported_function_name(env_name)
+                    .is_some_and(|name| imported_functions.contains_key(name))
+            })
+            .cloned()
+            .collect();
+        for env_name in imported_fn_env_names {
+            env_vars.remove(&env_name);
+        }
         env_vars.remove("__RUBASH_CURRENT_FUNCTION");
         env_vars.remove("__RUBASH_IN_SOURCE");
         if env_vars.get("__RUBASH_COPROC_CHILD").map(String::as_str) != Some("1") {

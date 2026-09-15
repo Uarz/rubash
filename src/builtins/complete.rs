@@ -1065,7 +1065,14 @@ fn service_completion_candidates(env_vars: &HashMap<String, String>) -> Vec<Stri
 }
 
 fn variable_completion_candidates(env_vars: &HashMap<String, String>) -> Vec<String> {
-    let mut candidates: Vec<String> = env_vars.keys().cloned().collect();
+    // GNU variables.c:511-526 (initialize_shell_variables): invalid-name
+    // environment entries live in the invisible invalid_env table and are
+    // never shell variables, so they are not completion candidates either.
+    let mut candidates: Vec<String> = env_vars
+        .keys()
+        .filter(|name| valid_identifier(name))
+        .cloned()
+        .collect();
     candidates.sort();
     candidates.dedup();
     candidates

@@ -4,6 +4,7 @@ use std::io::{self, Write};
 use super::attrs::DeclareOptions;
 use super::diagnostic::diagnostic_prefix;
 use super::marks::{exported_vars, marked_vars};
+use super::names::valid_identifier;
 use super::output::{
     print_declaration, print_plain_declaration, print_unset_declaration, DeclarationAttrs,
 };
@@ -127,6 +128,14 @@ pub(super) fn declaration_names_to_print(
     let mut names: Vec<String> = variables
         .keys()
         .filter(|name| !name.starts_with("__RUBASH_"))
+        // GNU variables.c:511-526 (initialize_shell_variables): environment
+        // entries with invalid identifier names (Windows passes names like
+        // `CommonProgramFiles(x86)`) are bound into the invisible
+        // invalid_env table, not shell_variables — so export -p (which
+        // iterates shell variables) never prints them. They are still
+        // exported to children via maybe_make_export_env
+        // (variables.c:5064-5117).
+        .filter(|name| valid_identifier(name))
         .filter(|name| {
             if !filter_by_attr {
                 return true;
@@ -148,6 +157,12 @@ pub(super) fn declaration_names_to_print(
         .chain(nameref_vars.iter())
     {
         if name.starts_with("__RUBASH_") {
+            continue;
+        }
+        // Same invalid_env rule as the primary listing above: an invalid
+        // name never became a shell variable, so attribute-marker loops
+        // must not resurrect it into the listing (niubash issue #102).
+        if !valid_identifier(name) {
             continue;
         }
         if !filter_by_attr && !variables.contains_key(name) {
