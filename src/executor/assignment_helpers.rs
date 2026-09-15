@@ -487,6 +487,15 @@ impl Iterator for StorageWordIter<'_> {
                 escaped = true;
                 continue;
             }
+            // GNU parse.y:5368-5397 read_token_word + expand_word_internal
+            // quote removal: a backslash outside any quote removes itself
+            // and keeps the next char literal (e.g. `\for` -> `for`, `\'b`
+            // -> `'b`). Inside double quotes the backslash is kept for
+            // unquote_storage_value to handle CBSDQUOTE semantics.
+            if ch == '\\' && !in_double && !in_single {
+                escaped = true;
+                continue;
+            }
             if ch == '$' && !in_single && matches!(chars.peek(), Some((_, '{'))) {
                 // A `${...}` body is one lexical unit: GNU parse_matched_pair
                 // scans it with its own nested-pair quote state, so body

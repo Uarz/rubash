@@ -38,6 +38,13 @@ impl Iterator for StorageWordIter<'_> {
                 escaped = true;
                 continue;
             }
+            // GNU parse.y:5368-5397 read_token_word + expand_word_internal
+            // quote removal: a backslash outside any quote removes itself
+            // and keeps the next char literal (e.g. `\'b` -> `'b`).
+            if ch == '\\' && !in_double && !in_single {
+                escaped = true;
+                continue;
+            }
             if ch == '\'' && !in_double {
                 in_single = !in_single;
                 word.push(ch);
