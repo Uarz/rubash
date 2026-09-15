@@ -40,6 +40,11 @@ struct FormatSpec {
     precision_from_arg: bool,
     time_format: Option<String>,
     specifier: char,
+    /// GNU printf.def:897-918 decodeint() reports ERANGE when an inline
+    /// (non-`*`) width or precision overflows `int`. The flag is set in
+    /// parse_format_spec and surfaced as a diagnostic in render_one_pass.
+    inline_width_overflow: bool,
+    inline_precision_overflow: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -620,6 +625,25 @@ fn render_one_pass(
                     };
                 };
                 errors.extend(resolve_dynamic_format_args(&mut spec, args, arg_index));
+
+                // GNU printf.def:897-918 decodeint() reports ERANGE when an
+                // inline (non-`*`) width or precision overflows int. The
+                // flags are set in parse_format_spec; surface them here
+                // where the diagnostic prefix is available.
+                if spec.inline_width_overflow {
+                    errors.push(format!(
+                        "{}printf: warning: {}: Numerical result out of range",
+                        diagnostic_prefix(env_vars),
+                        spec.raw
+                    ));
+                }
+                if spec.inline_precision_overflow {
+                    errors.push(format!(
+                        "{}printf: warning: {}: Numerical result out of range",
+                        diagnostic_prefix(env_vars),
+                        spec.raw
+                    ));
+                }
 
                 if spec.specifier == 'n' {
                     let name = next_arg(args, arg_index);

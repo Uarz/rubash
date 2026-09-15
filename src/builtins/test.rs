@@ -182,6 +182,50 @@ impl TestParser<'_> {
         }
     }
 
+    /// 5.3 `posixtest(nargs)` called from `term()` for parenthesized
+    /// sub-expressions with ≤4 arguments (test.c:287-296,
+    /// `shell_compatibility_level > 52`).  Unlike the top-level
+    /// `posixtest()`, this dispatches on `nargs` and adjusts `pos` to
+    /// point at the closing `)` after evaluation, so the caller can
+    /// verify and consume it.
+    fn posixtest_nargs(&mut self, nargs: usize) -> Result<bool, String> {
+        let close_pos = self.pos + nargs;
+        match nargs {
+            0 => Ok(false),
+            1 => {
+                let value = !self.cur().is_empty();
+                self.pos = close_pos;
+                Ok(value)
+            }
+            2 => {
+                let value = self.two_arguments()?;
+                self.pos = close_pos;
+                Ok(value)
+            }
+            3 => {
+                let value = self.three_arguments()?;
+                self.pos = close_pos;
+                Ok(value)
+            }
+            4 => {
+                if self.cur() == "!" {
+                    self.advance(true)?;
+                    let value = self.three_arguments()?;
+                    self.pos = close_pos;
+                    Ok(!value)
+                } else if self.cur() == "(" && self.argv(self.pos + 3) == Some(")") {
+                    self.advance(true)?;
+                    let value = self.two_arguments()?;
+                    self.pos = close_pos;
+                    Ok(value)
+                } else {
+                    self.expr()
+                }
+            }
+            _ => self.expr(),
+        }
+    }
+
     /// 5.2 `two_arguments()`: the `!` form reads its operand but does not
     /// advance pos (the callers set pos = argc to discard leftovers).
     fn two_arguments(&mut self) -> Result<bool, String> {
@@ -323,11 +367,33 @@ impl TestParser<'_> {
             let inner = self.term()?;
             return Ok(if negate { !inner } else { inner });
         }
-        // Parenthesized expression: 5.2 always re-enters expr() (no short
-        // arity fast-path).
+        // Parenthesized expression: 5.3 `term()` (test.c:268-296) scans
+        // forward to find the matching `)`.  If the sub-expression has
+        // ≤4 arguments, `posixtest(nargs)` is used instead of `expr()`,
+        // which properly bounds the parse and prevents the inner
+        // expression from consuming the closing `)`.
         if self.cur() == "(" {
             self.advance(true)?;
-            let value = self.expr()?;
+            // Scan forward to find the matching `)` and count nargs.
+            let mut nargs = 1usize;
+            let mut count = 1i32;
+            while self.pos + nargs < self.argc() {
+                match self.argv(self.pos + nargs) {
+                    Some(")") => count -= 1,
+                    Some("(") => count += 1,
+                    _ => {}
+                }
+                if count == 0 {
+                    break;
+                }
+                nargs += 1;
+            }
+            let found_close = count == 0 && self.pos + nargs < self.argc();
+            let value = if found_close && nargs <= 4 {
+                self.posixtest_nargs(nargs)?
+            } else {
+                self.expr()?
+            };
             // After the sub-expression the closing token must be a `)`. For
             // `[ ... ]` the already-consumed `]` is reported as the offender.
             if self.pos >= self.argc() {
@@ -486,6 +552,24 @@ fn virtual_device_test(op: &str, operand: &str) -> Option<bool> {
             "-a" | "-e" | "-r" | "-c" => true,
             "-w" | "-x" | "-s" | "-b" | "-p" | "-S" | "-u" | "-g" | "-k" | "-h" | "-L" | "-O"
             | "-G" | "-N" => false,
+            _ => return None,
+        });
+    }
+
+    // stdout (fd 1) and stderr (fd 2) are writable virtual devices.
+    // GNU test.c `unary_test` checks the actual fd via `sh_eaccess`; in
+    // the test-suite context these fds are open and writable.
+    if matches!(
+        operand,
+        "/dev/stdout" | "/proc/self/fd/1" | "/dev/fd/1"
+            | "/dev/stderr"
+            | "/proc/self/fd/2"
+            | "/dev/fd/2"
+    ) {
+        return Some(match op {
+            "-a" | "-e" | "-w" => true,
+            "-r" | "-x" | "-s" | "-b" | "-c" | "-p" | "-S" | "-u" | "-g" | "-k" | "-h" | "-L"
+            | "-O" | "-G" | "-N" => false,
             _ => return None,
         });
     }

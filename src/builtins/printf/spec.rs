@@ -29,7 +29,17 @@ where
     } else {
         let (width, digits) = read_usize_with_digits(chars);
         raw.push_str(&digits);
-        spec.width = width;
+        // GNU printf.def:897-901 decodeint(): inline field width is an
+        // int; values outside i32 range return 0 (overflow_retval). Clamp
+        // to avoid huge padding allocation (issue #90).
+        match width.and_then(|w| i32::try_from(w).ok()) {
+            Some(w) => spec.width = Some(w as usize),
+            None if width.is_some() => {
+                spec.width = Some(0);
+                spec.inline_width_overflow = true;
+            }
+            None => {}
+        }
     }
     if chars.peek() == Some(&'.') {
         chars.next();
@@ -41,7 +51,21 @@ where
         } else {
             let (precision, digits) = read_usize_with_digits(chars);
             raw.push_str(&digits);
-            spec.precision = Some(precision.unwrap_or(0));
+            // GNU printf.def:912-918 decodeint(): inline precision is an
+            // int; values outside i32 range return -1 (overflow_retval,
+            // meaning "no precision"). A missing digit string is treated
+            // as precision 0.
+            match precision.and_then(|p| i32::try_from(p).ok()) {
+                Some(p) => spec.precision = Some(p as usize),
+                None if precision.is_some() => {
+                    // Overflow: GNU's printstr adjusts pr back to
+                    // `precision` (0 from printf_builtin), yielding
+                    // precision 0, not -1.
+                    spec.precision = Some(0);
+                    spec.inline_precision_overflow = true;
+                }
+                None => spec.precision = Some(0),
+            }
         }
     }
 
@@ -99,9 +123,27 @@ pub(super) fn resolve_dynamic_format_args(
             value: width,
             invalid,
         } = parse_i64(raw);
+        let had_error = invalid.is_some();
         if let Some(invalid) = invalid {
             errors.push(invalid_number_error(&invalid));
         }
+        // GNU printf.def:1400-1424 getint(): field width is an int, so
+        // values outside i32 range return 0 (the overflow_retval for
+        // width) and produce an ERANGE diagnostic. Without this clamp,
+        // a huge width argument causes apply_width to allocate
+        // gigabytes of padding, hanging the process (issue #90,
+        // printf7.sub overflow tests).
+        let width = match i32::try_from(width) {
+            Ok(w) => w,
+            Err(_) => {
+                if !had_error {
+                    errors.push(invalid_number_error(&format!(
+                        "__rubash_printf_overflow__:{raw}"
+                    )));
+                }
+                0
+            }
+        };
         if width < 0 {
             spec.left_adjust = true;
             spec.width = Some(width.unsigned_abs() as usize);
@@ -116,9 +158,24 @@ pub(super) fn resolve_dynamic_format_args(
             value: precision,
             invalid,
         } = parse_i64(raw);
+        let had_error = invalid.is_some();
         if let Some(invalid) = invalid {
             errors.push(invalid_number_error(&invalid));
         }
+        // GNU printf.def:1400-1424 getint(): precision is an int, so
+        // values outside i32 range return -1 (the overflow_retval for
+        // precision, meaning "no precision").
+        let precision = match i32::try_from(precision) {
+            Ok(p) => p,
+            Err(_) => {
+                if !had_error {
+                    errors.push(invalid_number_error(&format!(
+                        "__rubash_printf_overflow__:{raw}"
+                    )));
+                }
+                -1
+            }
+        };
         spec.precision = (precision >= 0).then_some(precision as usize);
     }
     errors

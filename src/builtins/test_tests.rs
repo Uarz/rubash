@@ -219,6 +219,36 @@ fn supports_parenthesized_logical_expressions() {
 }
 
 #[test]
+fn parenthesized_subexpression_with_posixtest_fast_path() {
+    // GNU 5.3 test.c:287-296 uses posixtest(nargs) for parenthesized
+    // sub-expressions with ≤4 arguments.  `test true -a ( ! -a )` has
+    // 2 arguments inside the parens; the fast-path prevents the inner
+    // `expr()` from consuming the closing `)`.
+    assert_eq!(
+        run(&["true", "-a", "(", "!", "-a", ")"], false).0,
+        EXECUTION_FAILURE
+    );
+    assert_eq!(
+        run(&["true", "-a", "(", "-n", "foo", ")"], false).0,
+        EXECUTION_SUCCESS
+    );
+    assert_eq!(
+        run(&["true", "-a", "(", "foo", ")"], false).0,
+        EXECUTION_SUCCESS
+    );
+}
+
+#[test]
+fn virtual_device_stdout_stderr_are_writable() {
+    // /dev/fd/1, /dev/fd/2, /dev/stdout, /dev/stderr are writable
+    // virtual devices (matching GNU's sh_eaccess on open fds).
+    for path in &["/dev/fd/1", "/dev/fd/2", "/dev/stdout", "/dev/stderr"] {
+        assert_eq!(run(&["-w", path], false).0, EXECUTION_SUCCESS);
+        assert_eq!(run(&["-e", path], false).0, EXECUTION_SUCCESS);
+    }
+}
+
+#[test]
 fn bracket_requires_closing_bracket() {
     let (status, stderr) = run(&["x"], true);
 

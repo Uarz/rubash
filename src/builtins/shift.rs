@@ -30,6 +30,14 @@ where
         return Ok(ShiftAction::Complete(2));
     }
 
+    // GNU builtins/shift.def: strip leading `--` argument terminator before
+    // processing the shift count. `shift -- 5` is equivalent to `shift 5`.
+    let args: &[String] = if args.first().map(String::as_str) == Some("--") {
+        &args[1..]
+    } else {
+        args
+    };
+
     if args.len() > 1 {
         writeln!(stderr, "{}shift: too many arguments", diagnostic_prefix())?;
         return Ok(ShiftAction::Complete(1));
