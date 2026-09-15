@@ -36,6 +36,7 @@ impl Executor {
 
         match crate::builtins::command::execute_with_io(
             cmd.words[1..].iter().map(String::as_str),
+            &self.diagnostic_prefix(),
             &mut stdout,
             &mut stderr,
         )? {

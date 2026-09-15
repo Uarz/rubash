@@ -1,6 +1,7 @@
 use super::*;
 use crate::lexer::dolbrace::{scan_braced_parameter_body, BraceContext, DolbraceState};
 use crate::lexer::Token;
+use crate::lexer::TokenKind;
 
 pub(super) fn compound_assignment_from_word(
     word: &str,
@@ -399,6 +400,13 @@ pub(super) fn collect_compound_assignment(
             ));
             i = next_i;
             continue;
+        }
+        if matches!(
+            tokens[i].kind,
+            TokenKind::Background | TokenKind::Pipe | TokenKind::And | TokenKind::Or
+                | TokenKind::Semicolon
+        ) {
+            return None;
         }
         i += 1;
     }

@@ -426,29 +426,33 @@ impl Executor {
         }
 
         let mut stdin = io::stdin().lock();
-        let mut bytes = [0_u8; 1];
-        let mut output = String::new();
+        let mut byte = [0_u8; 1];
+        let mut raw_bytes = Vec::new();
         loop {
-            let count = stdin.read(&mut bytes).ok()?;
+            let count = stdin.read(&mut byte).ok()?;
             if count == 0 {
                 break;
             }
 
-            let ch = bytes[0] as char;
-            if !exact_char_limit && ch == delimiter {
+            // GNU read.def under LC_ALL=C treats each byte as a character.
+            // Compare the raw byte against the delimiter's byte encoding
+            // rather than casting through `u8 as char`, which corrupts high
+            // bytes by re-encoding them as multi-byte UTF-8 in the String.
+            if !exact_char_limit && delimiter.is_ascii() && byte[0] == delimiter as u8 {
                 break;
             }
 
-            output.push(ch);
-            if char_limit.is_some_and(|limit| output.chars().count() >= limit) {
+            raw_bytes.push(byte[0]);
+            if char_limit.is_some_and(|limit| raw_bytes.len() >= limit) {
                 break;
             }
         }
 
-        if output.is_empty() {
+        if raw_bytes.is_empty() {
             return None;
         }
 
+        let output = bytes_to_shell_text(&raw_bytes);
         Some(trim_read_input(
             output,
             delimiter,

@@ -15,12 +15,16 @@ pub enum EvalAction {
 }
 
 /// Execute `eval` option processing with arguments after the command name.
-pub fn execute(args: &[String]) -> io::Result<EvalAction> {
+pub fn execute(args: &[String], prefix: &str) -> io::Result<EvalAction> {
     let mut stderr = io::stderr().lock();
-    execute_with_io(args.iter().map(String::as_str), &mut stderr)
+    execute_with_io(args.iter().map(String::as_str), prefix, &mut stderr)
 }
 
-pub(crate) fn execute_with_io<'a, I, E>(args: I, stderr: &mut E) -> io::Result<EvalAction>
+pub(crate) fn execute_with_io<'a, I, E>(
+    args: I,
+    prefix: &str,
+    stderr: &mut E,
+) -> io::Result<EvalAction>
 where
     I: IntoIterator<Item = &'a str>,
     E: Write,
@@ -33,7 +37,7 @@ where
             index += 1;
         } else if arg.starts_with('-') && *arg != "-" {
             let option = arg.chars().nth(1).unwrap_or('-');
-            writeln!(stderr, "rubash: eval: -{}: invalid option", option)?;
+            writeln!(stderr, "{prefix}eval: -{}: invalid option", option)?;
             writeln!(stderr, "eval: usage: eval [arg ...]")?;
             return Ok(EvalAction::Complete(EX_USAGE));
         }
@@ -52,7 +56,7 @@ mod tests {
 
     fn run(args: &[&str]) -> (EvalAction, String) {
         let mut stderr = Vec::new();
-        let action = execute_with_io(args.iter().copied(), &mut stderr).unwrap();
+        let action = execute_with_io(args.iter().copied(), "rubash: ", &mut stderr).unwrap();
 
         (action, String::from_utf8(stderr).unwrap())
     }

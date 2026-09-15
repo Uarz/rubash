@@ -6,7 +6,7 @@ impl Executor {
         name: &str,
     ) -> Option<String> {
 
-        if let Some((var_name, word)) = name.split_once(":=") {
+        if let Some((var_name, word)) = split_once_outside_subscript_str(name, ":=") {
             if self
                 .parameter_operator_value(var_name)
                 .is_some_and(|value| !value.is_empty())
@@ -26,7 +26,7 @@ impl Executor {
             super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.set(old));
             return Some(result);
         }
-        if let Some((var_name, word)) = name.split_once(":-") {
+        if let Some((var_name, word)) = split_once_outside_subscript_str(name, ":-") {
             if self
                 .parameter_operator_value(var_name)
                 .is_some_and(|value| !value.is_empty())
@@ -39,7 +39,7 @@ impl Executor {
             }
             return Some(self.expand_parameter_word(word));
         }
-        if let Some((var_name, word)) = name.split_once(":+") {
+        if let Some((var_name, word)) = split_once_outside_subscript_str(name, ":+") {
             if self
                 .parameter_operator_value(var_name)
                 .is_some_and(|value| !value.is_empty())
@@ -48,7 +48,7 @@ impl Executor {
             }
             return Some(String::new());
         }
-        if let Some((var_name, word)) = name.split_once(":?") {
+        if let Some((var_name, word)) = split_once_outside_subscript_str(name, ":?") {
             if !var_name.is_empty() {
                 if self
                     .parameter_operator_value(var_name)
@@ -63,7 +63,7 @@ impl Executor {
                 return Some(self.expand_parameter_word(word));
             }
         }
-        if let Some((var_name, word)) = name.split_once('?') {
+        if let Some((var_name, word)) = split_once_outside_subscript(name, '?') {
             if !var_name.is_empty() {
                 return Some(
                     self.parameter_operator_value(var_name)
@@ -72,7 +72,7 @@ impl Executor {
                 );
             }
         }
-        if let Some((var_name, word)) = name.split_once('=') {
+        if let Some((var_name, word)) = split_once_outside_subscript(name, '=') {
             // GNU parameter_brace_expand_word sets expand_no_split_dollar_star
             // for op == '=' (subst.c:4487). This makes unquoted $* with null
             // IFS join with IFS[0] inside the value (exp11.sub ${c=${*/}}).
@@ -84,7 +84,7 @@ impl Executor {
             super::expand_braced_replacement::ASSIGNMENT_RHS.with(|f| f.set(old));
             return Some(result);
         }
-        if let Some((var_name, word)) = name.split_once('+') {
+        if let Some((var_name, word)) = split_once_outside_subscript(name, '+') {
             if self.parameter_operator_value(var_name).is_some() {
                 return Some(self.expand_parameter_word(word));
             }
@@ -107,7 +107,7 @@ impl Executor {
                     .unwrap_or_default(),
             );
         }
-        if let Some((var_name, word)) = name.split_once('-') {
+        if let Some((var_name, word)) = split_once_outside_subscript(name, '-') {
             return Some(
                 self.parameter_operator_value(var_name)
                     .map(|value| shell_safe_value(&value))
@@ -117,7 +117,7 @@ impl Executor {
         if let Some((array_name, default)) = name
             .strip_suffix("[@]")
             .or_else(|| name.strip_suffix("[*]"))
-            .and_then(|array_name| array_name.split_once('-').map(|_| (array_name, "")))
+            .and_then(|array_name| split_once_outside_subscript(array_name, '-').map(|_| (array_name, "")))
         {
             return Some(
                 self.parameter_array_storage(array_name)
@@ -126,7 +126,7 @@ impl Executor {
                     .unwrap_or_else(|| default.to_string()),
             );
         }
-        if let Some((array_expr, default)) = name.split_once('-') {
+        if let Some((array_expr, default)) = split_once_outside_subscript(name, '-') {
             if let Some(array_name) = array_expr
                 .strip_suffix("[@]")
                 .or_else(|| array_expr.strip_suffix("[*]"))
@@ -184,4 +184,70 @@ impl Executor {
         }
         None
     }
+}
+
+/// Split `name` on the first top-level occurrence of `op`, skipping `[...]`
+/// array subscripts and `${...}` nested parameter expansions. GNU
+/// `param_expand` (subst.c) only recognizes the `=`, `+`, `-`, `?` operators
+/// at the top level of the braced parameter body; an `=` inside a subscript
+/// like `${_ENV[(_=1)]}` is an arithmetic assignment, not a `${var=word}`
+/// operator (new-exp.tests line 45).
+fn split_once_outside_subscript<'a>(name: &'a str, op: char) -> Option<(&'a str, &'a str)> {
+    let op_byte = op as u8;
+    split_once_outside_subscript_impl(name, &[op_byte])
+}
+
+/// Split on a two-character operator (e.g. `:=`, `:-`, `:+`, `:?`) at the top
+/// level, skipping `[...]` subscripts and `${...}` nested expansions.
+fn split_once_outside_subscript_str<'a>(name: &'a str, op: &str) -> Option<(&'a str, &'a str)> {
+    let op_bytes: Vec<u8> = op.bytes().collect();
+    split_once_outside_subscript_impl(name, &op_bytes)
+}
+
+fn split_once_outside_subscript_impl<'a>(name: &'a str, op: &[u8]) -> Option<(&'a str, &'a str)> {
+    let bytes = name.as_bytes();
+    let mut bracket_depth = 0usize;
+    let mut brace_depth = 0usize;
+    let mut escaped = false;
+    let mut index = 0;
+    while index < bytes.len() {
+        if escaped {
+            escaped = false;
+            index += 1;
+            continue;
+        }
+        let ch = bytes[index];
+        if ch == b'\\' {
+            escaped = true;
+            index += 1;
+            continue;
+        }
+        if ch == b'$' && bytes.get(index + 1) == Some(&b'{') {
+            brace_depth += 1;
+            index += 2;
+            continue;
+        }
+        if ch == b'}' && brace_depth > 0 {
+            brace_depth -= 1;
+            index += 1;
+            continue;
+        }
+        if brace_depth == 0 && ch == b'[' {
+            bracket_depth += 1;
+            index += 1;
+            continue;
+        }
+        if brace_depth == 0 && ch == b']' && bracket_depth > 0 {
+            bracket_depth -= 1;
+            index += 1;
+            continue;
+        }
+        if bracket_depth == 0 && brace_depth == 0 && index + op.len() <= bytes.len() {
+            if bytes[index..index + op.len()] == *op {
+                return Some((&name[..index], &name[index + op.len()..]));
+            }
+        }
+        index += 1;
+    }
+    None
 }

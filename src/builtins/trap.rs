@@ -185,27 +185,23 @@ where
     let action = args[index].as_str();
     index += 1;
     if index >= args.len() {
-        // GNU builtins/trap.def: a single all-digit argument that names a
-        // valid signal, or a single valid signal name, reverts that signal
-        // to its original disposition (first_signal/REVERT; "trap 0" reverts
-        // EXIT, "trap hup" reverts SIGHUP). An all-digit argument that names
-        // no signal is a usage error ("trap 512"), while any other single
-        // argument is silently ignored with status 0 (WSL GNU 5.3.0 probes:
-        // "trap ''" and "trap zzz" both print nothing and exit 0).
-        if action == "-" {
-            print_usage(stderr)?;
-            return Ok(EX_USAGE);
-        }
-        let all_digits = !action.is_empty() && action.chars().all(|ch| ch.is_ascii_digit());
+        // GNU builtins/trap.def lines 170-199: a single argument is either
+        // a valid signal (REVERT), "-" (REVERT via else branch, but list->next
+        // is NULL so builtin_usage + EX_USAGE), an all-digit string naming a
+        // valid signal (first_signal REVERT, e.g. "trap 0" reverts EXIT), or
+        // anything else. For anything else (empty string, non-signal name
+        // like "zzz", all-digit invalid like "512"), the else branch advances
+        // list to NULL, calls builtin_usage() and returns EX_USAGE.
+        //   first_signal = *first_arg && all_digits && signal_object_p
+        //   REVERT (non-posix) = *first_arg && (*first_arg != '-' || first_arg[1])
+        //                         && signal_object_p && list->next == 0
+        //   else: list = list->next; if list == 0: builtin_usage; return EX_USAGE
         if let Some(signal) = normalize_signal(action) {
             remove_trap(env_vars, signal);
             return Ok(0);
         }
-        if all_digits {
-            print_usage(stderr)?;
-            return Ok(EX_USAGE);
-        }
-        return Ok(0);
+        print_usage(stderr)?;
+        return Ok(EX_USAGE);
     }
 
     let signals = normalized_signals(&args[index..], env_vars, stderr)?;

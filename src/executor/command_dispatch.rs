@@ -59,6 +59,9 @@ impl Executor {
     }
 
     fn execute_prepared_command(&mut self, cmd: &CommandNode) -> Result<(), ExecuteError> {
+        if std::env::var("RUBASH_DBG_ECHO").is_ok() {
+            eprintln!("DBG execute_prepared_command: words={:?}", cmd.words);
+        }
         if self
             .env_vars
             .contains_key(SKIP_POSIXPIPE_TIME_COUNT_REMAINDER)

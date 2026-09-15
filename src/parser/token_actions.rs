@@ -145,11 +145,22 @@ pub(super) fn handle_token(tokens: &[Token], i: &mut usize, state: &mut ParseSta
                         // wheat=([six]=6 [foo bar]="qux qix")).
                         if let Some((lhs, rhs)) = token.raw.split_once('=') {
                             if valid_compound_assignment_lhs(lhs) && rhs.starts_with('(') {
-                                var_value = format!(
-                                    "{}{}",
-                                    crate::executor::types::COMPOUND_ASSIGNMENT_MARKER,
-                                    rhs
-                                );
+                                if let Some(op) = find_unquoted_ctrl_op(rhs) {
+                                    state.current_cmd.insert_assignment(
+                                        "__RUBASH_COMPOUND_SYNTAX_ERROR__".to_string(),
+                                        format!("unexpected token `{op}'"),
+                                    );
+                                    state.current_cmd.insert_assignment(
+                                        "__RUBASH_PARSE_SOURCE__".to_string(),
+                                        token.raw.clone(),
+                                    );
+                                } else {
+                                    var_value = format!(
+                                        "{}{}",
+                                        crate::executor::types::COMPOUND_ASSIGNMENT_MARKER,
+                                        rhs
+                                    );
+                                }
                             }
                         }
                     }
@@ -1043,4 +1054,37 @@ fn valid_compound_assignment_lhs(lhs: &str) -> bool {
             .iter()
             .all(|b| b.is_ascii_alphanumeric() || *b == b'_')
         && bytes.iter().any(|b| b.is_ascii_alphabetic() || *b == b'_')
+}
+
+/// Scan the raw text of a compound assignment value `( ... )` for an
+/// unquoted control operator (&, |, ;, <, >) that GNU's
+/// parse_compound_assignment rejects as a syntax error.
+fn find_unquoted_ctrl_op(value: &str) -> Option<char> {
+    let bytes = value.as_bytes();
+    let mut i = 0;
+    if i < bytes.len() && bytes[i] == b'(' {
+        i += 1;
+    }
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if escaped {
+            escaped = false;
+            i += 1;
+            continue;
+        }
+        match c {
+            b'\\' if !in_single => escaped = true,
+            b'\'' if !in_double => in_single = !in_single,
+            b'"' if !in_single => in_double = !in_double,
+            b'&' | b'|' | b';' | b'<' | b'>' if !in_single && !in_double => {
+                return Some(c as char);
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
 }

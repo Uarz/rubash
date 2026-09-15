@@ -246,7 +246,7 @@ impl Executor {
         if described || self.execute_command_describe(&cmd.words[1..]) {
             return Ok(Ok(()));
         }
-        Ok(match crate::builtins::command::execute(&cmd.words[1..])? {
+        Ok(match crate::builtins::command::execute(&cmd.words[1..], &self.diagnostic_prefix())? {
             crate::builtins::command::CommandAction::Complete(status) => {
                 self.exit_code = status;
                 Ok(())

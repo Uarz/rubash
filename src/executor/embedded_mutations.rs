@@ -681,17 +681,34 @@ impl Executor {
                             // non-ASCII space separators we must not quote.
                             .any(|ch| ch.is_ascii_whitespace() || ch == '\x0b')
                         {
-                            output.push('"');
-                            for ch in decoded.chars() {
-                                match ch {
-                                    '\\' => output.push_str("\\\\"),
-                                    '"' => output.push_str("\\\""),
-                                    '$' => output.push_str("\\$"),
-                                    '`' => output.push_str("\\`"),
-                                    _ => output.push(ch),
+                            // When the expansion context is already
+                            // double-quoted (e.g. `"${var:-$'\t'}"`), the
+                            // outer quotes already protect the decoded value
+                            // from field splitting. Use the \x1c whitespace
+                            // sentinel instead of wrapping in synthetic
+                            // double quotes, which would leak literal `"`
+                            // into the output (nquote.tests: `"${mytab:-$'\t'}"`
+                            // must yield a bare tab, not `"^I"`).
+                            if matches!(context, SubstitutionQuoteContext::DoubleQuoted) {
+                                for ch in decoded.chars() {
+                                    if matches!(ch, ' ' | '\t' | '\n') {
+                                        output.push('\x1c');
+                                    }
+                                    output.push(ch);
                                 }
+                            } else {
+                                output.push('"');
+                                for ch in decoded.chars() {
+                                    match ch {
+                                        '\\' => output.push_str("\\\\"),
+                                        '"' => output.push_str("\\\""),
+                                        '$' => output.push_str("\\$"),
+                                        '`' => output.push_str("\\`"),
+                                        _ => output.push(ch),
+                                    }
+                                }
+                                output.push('"');
                             }
-                            output.push('"');
                         } else {
                             output.push_str(&decoded);
                         }

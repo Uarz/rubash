@@ -37,6 +37,20 @@ impl Executor {
         drop(_t_heredoc);
         let _t_scans = PhaseTimer::new(&super::exec_profile::P_SCANS);
 
+        if let Some(message) = cmd.get_assignment("__RUBASH_COMPOUND_SYNTAX_ERROR__") {
+            let message = bash_style_unexpected_token_message(message);
+            eprintln!("{}syntax error near {message}", self.diagnostic_prefix());
+            if let Some(source) = cmd.get_assignment("__RUBASH_PARSE_SOURCE__") {
+                eprintln!(
+                    "{}`{}'",
+                    self.diagnostic_prefix(),
+                    parse_error_source_display(source)
+                );
+            }
+            self.exit_code = 1;
+            return Ok(());
+        }
+
         if let Some(message) = cmd.get_assignment("__RUBASH_PARSE_ERROR_EOF_PAREN__") {
             // parse.y: an unclosed `name=(` compound assignment reports the
             // bare EOF diagnostic with status 1 and no source echo.
@@ -312,6 +326,20 @@ impl Executor {
             return self.execute_empty_words_command(&cmd);
         }
 
+        // GNU execute_cmd.c execute_simple_command: array-style assignment
+        // prefixes like `var[0]=X` are recognized as assignment words by
+        // assignment() (general.c:480) and separated from command words at
+        // parse time. assign_in_env (variables.c:3536) then calls
+        // valid_identifier() on the extracted name (e.g. `var[0]`), which
+        // fails because `[` and `]` are not legal variable characters.
+        // sh_invalidid (builtins/common.c:208) reports
+        // `` `var[0]': not a valid identifier `` but execution continues
+        // with the remaining command word(s). Rubash's parser does not
+        // separate array-style assignment words from command words, so they
+        // remain in cmd.words; strip them here, report the diagnostic, and
+        // continue with the remaining command.
+        let cmd = self.strip_invalid_env_assignment_prefixes(&cmd);
+
         if let Some(result) = self.execute_function_command_invocation(&cmd) {
             return result;
         }
@@ -385,6 +413,64 @@ impl Executor {
         }
         materialized.assignments.extend(harvested);
         Some(materialized)
+    }
+
+    /// GNU execute_cmd.c execute_simple_command + variables.c assign_in_env:
+    /// array-style assignment prefixes like `var[0]=X` are recognized as
+    /// assignment words by assignment() (general.c:480) and separated from
+    /// command words at parse time. assign_in_env (variables.c:3536-3566)
+    /// extracts the name before `=` (e.g. `var[0]`), calls valid_identifier()
+    /// which fails for array-style names, and sh_invalidid (builtins/common.c:208)
+    /// reports `` `var[0]': not a valid identifier ``. The assignment is
+    /// skipped but execution continues with the remaining command word(s).
+    ///
+    /// Rubash's parser does not separate array-style assignment words from
+    /// command words (is_assignment in classification.rs only recognizes
+    /// simple `name=value`), so they remain in cmd.words. This function
+    /// detects leading array-style assignment words, reports the diagnostic
+    /// for each, strips them, and returns the modified command so the
+    /// remaining command word(s) reach function/builtin/external dispatch.
+    fn strip_invalid_env_assignment_prefixes(&mut self, cmd: &CommandNode) -> CommandNode {
+        // Find the run of leading array-style assignment words.
+        let mut prefix_end = 0usize;
+        for word in &cmd.words {
+            if !is_array_element_assignment_word(word) {
+                break;
+            }
+            prefix_end += 1;
+        }
+        // Only strip when there is at least one remaining command word.
+        // If all words are array-style assignments, the command is
+        // assignment-only and execute_array_element_assignment handles it.
+        if prefix_end == 0 || prefix_end >= cmd.words.len() {
+            return cmd.clone();
+        }
+        // Report the diagnostic for each invalid identifier, mirroring
+        // GNU assign_in_env -> sh_invalidid -> builtin_error. The name is
+        // everything before `=` (with `+` stripped for append), which for
+        // array-style words like `var[0]=X` is `var[0]` -- not a valid
+        // identifier because `[` and `]` are not legal variable characters.
+        for word in &cmd.words[..prefix_end] {
+            let Some((left, _)) = word.split_once('=') else {
+                continue;
+            };
+            let name = left.strip_suffix('+').unwrap_or(left);
+            if !is_shell_name(name) {
+                let line = format!(
+                    "{}`{}': not a valid identifier
+",
+                    self.diagnostic_prefix(),
+                    name
+                );
+                let _ = std::io::stderr().write_all(line.as_bytes());
+            }
+        }
+        let mut stripped = cmd.clone();
+        stripped.words = cmd.words[prefix_end..].to_vec();
+        if cmd.word_metadata.len() > prefix_end {
+            stripped.word_metadata = cmd.word_metadata[prefix_end..].to_vec();
+        }
+        stripped
     }
 }
 

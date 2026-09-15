@@ -208,7 +208,7 @@ impl Executor {
             return Ok(());
         }
 
-        match crate::builtins::command::execute(&cmd.words[1..])? {
+        match crate::builtins::command::execute(&cmd.words[1..], &self.diagnostic_prefix())? {
             crate::builtins::command::CommandAction::Complete(status) => {
                 self.exit_code = status;
                 Ok(())

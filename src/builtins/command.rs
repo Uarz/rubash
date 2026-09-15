@@ -27,14 +27,15 @@ enum DescribeMode {
 }
 
 /// Execute `command` with arguments after the command name.
-pub fn execute(args: &[String]) -> io::Result<CommandAction> {
+pub fn execute(args: &[String], prefix: &str) -> io::Result<CommandAction> {
     let mut stdout = io::stdout().lock();
     let mut stderr = io::stderr().lock();
-    execute_with_io(args.iter().map(String::as_str), &mut stdout, &mut stderr)
+    execute_with_io(args.iter().map(String::as_str), prefix, &mut stdout, &mut stderr)
 }
 
 pub(crate) fn execute_with_io<'a, I, W, E>(
     args: I,
+    prefix: &str,
     stdout: &mut W,
     stderr: &mut E,
 ) -> io::Result<CommandAction>
@@ -64,7 +65,7 @@ where
                 'v' => describe_mode = Some(DescribeMode::Reusable),
                 'V' => describe_mode = Some(DescribeMode::Verbose),
                 other => {
-                    writeln!(stderr, "rubash: command: -{}: invalid option", other)?;
+                    writeln!(stderr, "{prefix}command: -{}: invalid option", other)?;
                     writeln!(stderr, "command: usage: command [-pVv] command [arg ...]")?;
                     return Ok(CommandAction::Complete(EX_USAGE));
                 }
@@ -85,7 +86,7 @@ where
             if describe_command(name, mode, use_standard_path, stdout)? {
                 any_found = true;
             } else if mode == DescribeMode::Verbose {
-                writeln!(stderr, "rubash: command: {}: not found", name)?;
+                writeln!(stderr, "{prefix}command: {}: not found", name)?;
             }
         }
 
@@ -247,7 +248,7 @@ mod tests {
     fn run(args: &[&str]) -> (CommandAction, String, String) {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
-        let action = execute_with_io(args.iter().copied(), &mut stdout, &mut stderr).unwrap();
+        let action = execute_with_io(args.iter().copied(), "rubash: ", &mut stdout, &mut stderr).unwrap();
 
         (
             action,

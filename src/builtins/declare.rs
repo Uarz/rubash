@@ -400,6 +400,7 @@ where
     let arrays = marked_vars(variables, ARRAY_VARS);
     let assocs = marked_vars(variables, ASSOC_VARS);
     let namerefs = marked_vars(variables, NAMEREF_VARS);
+    let readonly_vars = marked_vars(variables, READONLY_VARS);
     for name in &names {
         // GNU builtins/declare.def:549-580 runs the nameref-specific lexical
         // checks on the LHS and RHS before the generic identifier check, and
@@ -497,10 +498,24 @@ where
             // the invalid-value error first (nameref22.sub:69 reports
             // `(one two three)': invalid variable name, then :70 reports the
             // array rejection for the same variable).
-            if arrays.contains(lhs) || assocs.contains(lhs) {
+            if (arrays.contains(lhs) || assocs.contains(lhs))
+                && !(namerefs.contains(lhs)
+                    && value.is_empty()
+                    && !variables.contains_key(lhs))
+            {
                 writeln!(
                     stderr,
                     "{}{command_name}: {}: reference variable cannot be an array",
+                    diagnostic_prefix(variables),
+                    lhs
+                )?;
+                attr_status = EXECUTION_FAILURE;
+                continue;
+            }
+            if readonly_vars.contains(lhs) {
+                writeln!(
+                    stderr,
+                    "{}{command_name}: {}: readonly variable",
                     diagnostic_prefix(variables),
                     lhs
                 )?;
@@ -549,16 +564,12 @@ where
                 // (nameref20/nameref21.sub); the effective_assign_names stage
                 // below performs the rewrite, so nothing is rejected here.
             } else {
-                // Unresolved chain (valueless or invalid cell): GNU rejects
-                // the assignment through the unusable reference.
-                writeln!(
-                    stderr,
-                    "{}{command_name}: {}: reference variable cannot be an array",
-                    diagnostic_prefix(variables),
-                    var_name
-                )?;
-                attr_status = EXECUTION_FAILURE;
-                continue;
+                // GNU declare.def: a valueless nameref (no target value
+                // stored) can be converted to an array by removing the
+                // nameref attribute (nameref12.sub: declare -n foo;
+                // declare -a foo; declare -p foo shows declare -a foo).
+                unmark_typed(variables, NAMEREF_VARS, var_name);
+                variables.remove(var_name);
             }
         }
         if assoc && arrays.contains(var_name) && !assocs.contains(var_name) {

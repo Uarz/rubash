@@ -454,13 +454,13 @@ impl Executor {
         let Some(input) = self.timed_pipeline_input(commands[0]) else {
             return Ok(None);
         };
-        let Some(output) = self.timed_read_consumer_output(commands[1], &input) else {
+        let Some((output, status)) = self.timed_read_consumer_output(commands[1], &input) else {
             return Ok(None);
         };
 
         self.write_pipeline_output(commands[1], &output)?;
-        self.exit_code = 0;
-        self.set_pipestatus(vec![0, 0]);
+        self.exit_code = status;
+        self.set_pipestatus(vec![0, status]);
         Ok(Some(()))
     }
 
@@ -537,8 +537,14 @@ impl Executor {
         &mut self,
         command: &CommandNode,
         input: &TimedPipelineInput,
-    ) -> Option<String> {
-        let body = command
+    ) -> Option<(String, i32)> {
+        // GNU read.def: a bare `read -t N` as the last pipeline stage (e.g.
+        // `sleep 1 | read -t 0.25 a`) must return 128+SIGALRM when the
+        // timeout expires before the producer sends data. The sequential
+        // pipeline path materializes the producer's output before starting
+        // the consumer, so it cannot observe the timeout. Handle a bare
+        // read command as a single-command body here.
+        let body: &[CommandNode] = command
             .subshell_command
             .as_ref()
             .map(|command| command.body.as_slice())
@@ -547,6 +553,20 @@ impl Executor {
                     .brace_group
                     .as_ref()
                     .map(|command| command.body.as_slice())
+            })
+            .or_else(|| {
+                // Bare read as last pipeline stage: synthesize a single-element
+                // body so the same loop logic applies.
+                if command
+                    .words
+                    .first()
+                    .map(|word| self.expand_word(word) == "read")
+                    .unwrap_or(false)
+                {
+                    Some(std::slice::from_ref(command))
+                } else {
+                    Some(&[])
+                }
             })?;
         let mut at = 0.0f64;
         let mut read_name = String::from("REPLY");
@@ -554,6 +574,7 @@ impl Executor {
         let mut read_status = 0;
         let mut saw_read = false;
         let mut output = String::new();
+        let mut last_status = 0;
         for command in body {
             let name = self.expand_word(command.words.first()?);
             match name.as_str() {
@@ -570,6 +591,7 @@ impl Executor {
                     read_value = value;
                     read_status = status;
                     saw_read = true;
+                    last_status = status;
                 }
                 _ if saw_read => {
                     output.push_str(&self.timed_read_followup_output(
@@ -578,11 +600,12 @@ impl Executor {
                         &read_value,
                         read_status,
                     )?);
+                    last_status = 0;
                 }
                 _ => return None,
             }
         }
-        saw_read.then_some(output)
+        saw_read.then_some((output, last_status))
     }
 
     fn timed_read_options(&mut self, command: &CommandNode) -> Option<(f64, String)> {
