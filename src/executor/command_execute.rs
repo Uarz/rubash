@@ -304,7 +304,6 @@ impl Executor {
         {
             return Ok(());
         }
-
         // Unquoted command substitutions can disappear during word
         // expansion. A command that started as `name=$(...)` may therefore
         // become assignment-only and must still apply the assignment and its

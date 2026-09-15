@@ -484,7 +484,15 @@ impl Executor {
         }
 
         seen.push(word.to_string());
-        let mut parts: Vec<String> = alias.value.split_whitespace().map(str::to_string).collect();
+        // GNU parse.y: alias value is pushed back into the parser input and
+        // re-tokenized. split_whitespace() would break command substitutions
+        // (`echo $(echo $DATE)` → `["echo", "$(echo", "$DATE)"]`); use the
+        // shell word splitter that respects `$(...)`, backticks, and quotes
+        // (comsub6.sub: `alias foo='echo $(echo $DATE)'` → `foo` prints the
+        // date, not `$(echo $DATE)`). Alias values store `$` as \x1f, so
+        // restore it before splitting.
+        let alias_value = alias.value.replace('\x1f', "$");
+        let mut parts = super::alias_helpers::split_shell_words(&alias_value);
 
         if let Some(first) = parts.first().cloned() {
             let (mut first_expanded, nested_expand_next) = self.expand_alias_word(&first, seen);

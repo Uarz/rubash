@@ -21,7 +21,12 @@ impl Executor {
         if !cmd
             .words
             .iter()
-            .any(|word| matches!(word.as_str(), ";" | "<" | ">" | ">>" | "|" | "&") || word.contains('='))
+            .any(|word| {
+                matches!(word.as_str(), ";" | "<" | ">" | ">>" | "|" | "&")
+                    || word.contains('=')
+                    || word.contains("$(")
+                    || word.contains('`')
+            })
         {
             return Ok(false);
         }
