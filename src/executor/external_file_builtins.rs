@@ -466,6 +466,14 @@ impl Executor {
     }
 
     fn external_cat(&mut self, cmd: &CommandNode) -> Result<bool, ExecuteError> {
+        let show_nonprinting = cat_has_show_nonprinting(cmd);
+        let filter = |data: &[u8]| -> Vec<u8> {
+            if show_nonprinting {
+                cat_v_filter(data)
+            } else {
+                data.to_vec()
+            }
+        };
         if let Some(redirect) = &cmd.redirect_in {
             if redirect.fd.unwrap_or(0) == 0 {
                 let target = self.expand_word(&redirect.target);
@@ -477,7 +485,7 @@ impl Executor {
                             let mut input = Vec::new();
                             reader.read_to_end(&mut input)?;
                             self.fd_table.close_input(fd);
-                            self.write_cat_output(cmd, &input)?;
+                            self.write_cat_output(cmd, &filter(&input))?;
                             self.exit_code = 0;
                             return Ok(true);
                         }
@@ -488,13 +496,14 @@ impl Executor {
 
         if cmd.heredoc.is_some() {
             let input = self.stdin_string_for_command_mut(cmd).unwrap_or_default();
+            let output = filter(input.as_bytes());
             if let Some(redirect) = &cmd.append {
                 let target = self.expand_word(&redirect.target);
                 let mut file = OpenOptions::new()
                     .create(true)
                     .append(true)
                     .open(shell_path_to_windows(&target, &self.env_vars))?;
-                file.write_all(input.as_bytes())?;
+                file.write_all(&output)?;
                 self.exit_code = 0;
                 return Ok(true);
             }
@@ -502,7 +511,7 @@ impl Executor {
             if let Some(redirect) = &cmd.redirect_out {
                 let target = self.expand_word(&redirect.target);
                 let mut file = self.create_redirect_output(&target, redirect.clobber)?;
-                file.write_all(input.as_bytes())?;
+                file.write_all(&output)?;
                 self.exit_code = 0;
                 return Ok(true);
             }
@@ -533,20 +542,20 @@ impl Executor {
                     }
                 }
             }
-            self.write_cat_output(cmd, &output)?;
+            self.write_cat_output(cmd, &filter(&output))?;
             self.exit_code = 0;
             return Ok(true);
         }
 
         if let Some(input) = self.stdin_string_for_command_mut(cmd) {
-            self.write_cat_output(cmd, input.as_bytes())?;
+            self.write_cat_output(cmd, &filter(input.as_bytes()))?;
             self.exit_code = 0;
             return Ok(true);
         }
 
         if !cat_has_file_operands(cmd) {
             if let Some(input) = self.read_function_stdin('\0', None, false) {
-                self.write_cat_output(cmd, input.as_bytes())?;
+                self.write_cat_output(cmd, &filter(input.as_bytes()))?;
                 self.exit_code = 0;
                 return Ok(true);
             }
@@ -582,7 +591,7 @@ impl Executor {
                 }
             }
         }
-        self.write_cat_output(cmd, &output)?;
+        self.write_cat_output(cmd, &filter(&output))?;
         self.exit_code = 0;
         Ok(true)
     }
@@ -590,6 +599,7 @@ impl Executor {
     fn stream_inherited_cat(&mut self, cmd: &CommandNode) -> Result<bool, ExecuteError> {
         use std::io::Read;
 
+        let show_nonprinting = cat_has_show_nonprinting(cmd);
         let mut stdin = std::io::stdin().lock();
         let mut buffer = [0_u8; 8192];
         loop {
@@ -597,7 +607,12 @@ impl Executor {
             if count == 0 {
                 break;
             }
-            self.write_cat_output(cmd, &buffer[..count])?;
+            let data = if show_nonprinting {
+                cat_v_filter(&buffer[..count])
+            } else {
+                buffer[..count].to_vec()
+            };
+            self.write_cat_output(cmd, &data)?;
         }
         self.exit_code = 0;
         Ok(true)
@@ -803,6 +818,62 @@ fn cp_copy_tree(
     }
     fs::copy(source, target)?;
     Ok(())
+}
+
+/// GNU cat -v: display control characters using `^` notation and high-bit
+/// bytes with `M-` prefix (coreutils cat.c cat_main + simple_cat). TAB and
+/// LF pass through unchanged unless -T/-E are also given.
+pub(in crate::executor) fn cat_v_filter(input: &[u8]) -> Vec<u8> {
+    let mut output = Vec::with_capacity(input.len());
+    for &byte in input {
+        match byte {
+            0x09 | 0x0a => output.push(byte),
+            0x00..=0x08 | 0x0b..=0x1f => {
+                output.push(b'^');
+                output.push(byte + 0x40);
+            }
+            0x7f => {
+                output.push(b'^');
+                output.push(b'?');
+            }
+            0x80..=0xff => {
+                output.extend_from_slice(b"M-");
+                let low = byte & 0x7f;
+                match low {
+                    0x09 | 0x0a => output.push(low),
+                    0x00..=0x08 | 0x0b..=0x1f => {
+                        output.push(b'^');
+                        output.push(low + 0x40);
+                    }
+                    0x7f => {
+                        output.push(b'^');
+                        output.push(b'?');
+                    }
+                    _ => output.push(low),
+                }
+            }
+            _ => output.push(byte),
+        }
+    }
+    output
+}
+
+/// Check whether the cat command has -v, -A, -e, or -t flags (all imply
+/// show-nonprinting in GNU coreutils cat).
+pub(in crate::executor) fn cat_has_show_nonprinting(cmd: &CommandNode) -> bool {
+    for word in cmd.words.iter().skip(1) {
+        if word == "--show-nonprinting" || word == "--show-all" {
+            return true;
+        }
+        if word.starts_with('-') && !word.starts_with("--") && word.len() > 1 {
+            for ch in word[1..].chars() {
+                if ch == 'v' || ch == 'A' || ch == 'e' || ch == 't' {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 fn cat_file_operands(cmd: &CommandNode) -> Vec<&String> {

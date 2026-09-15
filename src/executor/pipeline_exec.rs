@@ -1366,6 +1366,8 @@ impl Executor {
                 // execute_simple_command does, or `cat f*` opens the
                 // literal name "f*" and reports it as missing (probe
                 // 2026-09-09: `printf x | cat f*` printed nothing).
+                let show_nonprinting =
+                    crate::executor::external_file_builtins::cat_has_show_nonprinting(command);
                 let mut file_operands: Vec<String> = Vec::new();
                 for word in command.words[1..].iter() {
                     if word.starts_with('-') {
@@ -1391,11 +1393,18 @@ impl Executor {
                     let mut status = 0;
                     for path in file_operands {
                         match fs::read(shell_path_to_windows(&path, &self.env_vars)) {
-                            Ok(bytes) => output.push_str(
-                                &crate::executor::substitution_metadata::bytes_to_shell_text(
-                                    &bytes,
-                                ),
-                            ),
+                            Ok(bytes) => {
+                                let bytes = if show_nonprinting {
+                                    crate::executor::external_file_builtins::cat_v_filter(&bytes)
+                                } else {
+                                    bytes
+                                };
+                                output.push_str(
+                                    &crate::executor::substitution_metadata::bytes_to_shell_text(
+                                        &bytes,
+                                    ),
+                                );
+                            }
                             Err(_) => {
                                 stderr.push_str(&format!(
                                     "{}cat: {path}: No such file or directory\n",
@@ -1407,11 +1416,15 @@ impl Executor {
                     }
                     return Ok(Some((output, stderr, status)));
                 }
-                if let Some(input) = self.stdin_string_for_command_mut(command) {
-                    Ok(Some((input, String::new(), 0)))
+                let output = if show_nonprinting {
+                    let bytes = crate::executor::external_file_builtins::cat_v_filter(input.as_bytes());
+                    crate::executor::substitution_metadata::bytes_to_shell_text(&bytes)
+                } else if let Some(input) = self.stdin_string_for_command_mut(command) {
+                    input
                 } else {
-                    Ok(Some((input.to_string(), String::new(), 0)))
-                }
+                    input.to_string()
+                };
+                Ok(Some((output, String::new(), 0)))
             }
             "sed" => {
                 let args = command.words[1..]
