@@ -152,20 +152,12 @@ pub(in crate::executor) fn quote_array_value(value: &str) -> String {
 /// multibyte path (351-354): a printable decoded character is fine, an
 /// undecodable or non-printing one forces quoting.
 pub(in crate::executor) fn ansic_shouldquote(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if byte < 0x80 {
-            if !is_print_byte(byte) {
-                return true;
-            }
-            index += 1;
-            continue;
+    for ch in value.chars() {
+        if ch as u32 == crate::executor::substitution_metadata::RAW_BYTE_MARKER_ESCAPE {
+            return true;
         }
-        match decode_utf8_char(&bytes[index..]) {
-            Some(ch) if is_printable_wide(ch) => index += ch.len_utf8(),
-            _ => return true,
+        if ch.is_control() {
+            return true;
         }
     }
     false
@@ -176,71 +168,40 @@ pub(in crate::executor) fn ansic_shouldquote(value: &str) -> bool {
 /// printable UTF-8 characters under a UTF-8 locale, 266-282) literal, and
 /// every other byte as a three-digit octal escape (291-294).
 pub(in crate::executor) fn ansic_quote(value: &str) -> String {
-    let bytes = value.as_bytes();
-    let mut out = String::with_capacity(4 * bytes.len() + 4);
+    let mut out = String::with_capacity(4 * value.len() + 4);
     out.push_str("$'");
-    let mut index = 0;
-    while index < bytes.len() {
-        let byte = bytes[index];
-        match byte {
-            0x1b => {
-                out.push_str("\\E");
-                index += 1;
-            }
-            0x07 => {
-                out.push_str("\\a");
-                index += 1;
-            }
-            0x08 => {
-                out.push_str("\\b");
-                index += 1;
-            }
-            0x09 => {
-                out.push_str("\\t");
-                index += 1;
-            }
-            0x0a => {
-                out.push_str("\\n");
-                index += 1;
-            }
-            0x0b => {
-                out.push_str("\\v");
-                index += 1;
-            }
-            0x0c => {
-                out.push_str("\\f");
-                index += 1;
-            }
-            0x0d => {
-                out.push_str("\\r");
-                index += 1;
-            }
-            b'\\' => {
-                out.push_str("\\\\");
-                index += 1;
-            }
-            b'\'' => {
-                out.push_str("\\'");
-                index += 1;
-            }
-            0x20..=0x7e => {
-                out.push(byte as char);
-                index += 1;
-            }
-            _ if byte >= 0x80 => match decode_utf8_char(&bytes[index..]) {
-                Some(ch) if is_printable_wide(ch) => {
-                    out.push(ch);
-                    index += ch.len_utf8();
-                }
-                _ => {
-                    push_octal_escape(&mut out, byte);
-                    index += 1;
-                }
-            },
-            _ => {
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch as u32 == crate::executor::substitution_metadata::RAW_BYTE_MARKER_ESCAPE {
+            if let Some(next) = chars.next() {
+                let byte = (next as u32
+                    - crate::executor::substitution_metadata::RAW_BYTE_MARKER_FIRST) as u8;
                 push_octal_escape(&mut out, byte);
-                index += 1;
+                continue;
             }
+        }
+        match ch {
+            '\u{1b}' => out.push_str("\\E"),
+            '\u{7}' => out.push_str("\\a"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{9}' => out.push_str("\\t"),
+            '\u{a}' => out.push_str("\\n"),
+            '\u{b}' => out.push_str("\\v"),
+            '\u{c}' => out.push_str("\\f"),
+            '\u{d}' => out.push_str("\\r"),
+            '\\' => out.push_str("\\\\"),
+            '\'' => out.push_str("\\'"),
+            // GNU stores values as bytes; a single byte >= 0x80 is
+            // non-printable in the C/POSIX locale and is rendered as a
+            // three-digit octal escape (strtrans.c ansic_quote 291-294).
+            // Characters in U+0080..U+00FF correspond to single bytes
+            // >= 0x80, so they must be octal-escaped even though they
+            // decode to printable Unicode characters in a UTF-8 locale.
+            c if c.is_control() => out.push_str(&format!("\\{:03o}", c as u32)),
+            c if (c as u32) >= 0x80 && (c as u32) < 0x100 => {
+                push_octal_escape(&mut out, c as u8);
+            }
+            c => out.push(c),
         }
     }
     out.push('\'');

@@ -1661,6 +1661,13 @@ fn raw_quoted_at_word_has_quoted_null(raw: &str, executor: &Executor) -> bool {
                     saw_quoted_null = true;
                 } else if matches!(content.as_str(), "$@" | "$*" | "${@}" | "${*}") {
                     saw_quoted_at = true;
+                } else if content.contains("$@") || content.contains("${@}") {
+                    // A double-quoted string containing $@ among other
+                    // content (e.g. "$novar$@$(echo)") still triggers the
+                    // quoted-null retention rule when $@ is empty (exp9.sub
+                    // `''"$novar$@$(echo)"` with no positional params is one
+                    // empty argument).
+                    saw_quoted_at = true;
                 } else if quoted_pure_reference_expands_empty(&content, executor) {
                     saw_quoted_null = true;
                 }
@@ -1692,6 +1699,20 @@ fn raw_quoted_at_word_has_quoted_null(raw: &str, executor: &Executor) -> bool {
                     index += 1;
                 }
                 index += 1;
+            }
+            '$' if chars.get(index + 1) == Some(&'@') => {
+                // Unquoted $@ also triggers the quoted-null retention rule
+                // when adjacent to a quoted empty string (exp9.sub `''$@`
+                // with no positional params is one empty argument).
+                saw_quoted_at = true;
+                index += 2;
+            }
+            '$' if chars.get(index + 1) == Some(&'{')
+                && chars.get(index + 2) == Some(&'@')
+                && chars.get(index + 3) == Some(&'}') =>
+            {
+                saw_quoted_at = true;
+                index += 4;
             }
             _ => index += 1,
         }
