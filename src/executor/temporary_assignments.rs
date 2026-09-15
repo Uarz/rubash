@@ -429,6 +429,7 @@ impl Executor {
                 is_marked_var(&self.env_vars, INTEGER_VARS, base_name),
                 &self.env_vars,
             );
+            self.env_vars.insert(base_name.to_string(), stored.clone());
             for bare in &bare_elements {
                 eprintln!(
                     "{}{}: {}: must use subscript when assigning associative array",
@@ -438,7 +439,7 @@ impl Executor {
                 );
             }
             if !bare_elements.is_empty() {
-                return false;
+                self.exit_code = 1;
             }
             stored
         } else if compound_assignment
