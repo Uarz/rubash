@@ -194,39 +194,16 @@ pub(super) fn quote_double(value: &str) -> String {
 /// strtrans.c ansic_shouldquote: `$'...'` quoting is needed when the string
 /// contains a non-printing character. With a UTF-8 locale, printable
 /// non-ASCII characters stay literal (ansic_wshouldquote passes them).
-/// Raw byte markers (U+E000 pair) represent non-printable bytes >= 0x80
-/// that GNU renders as octal, so they force quoting too.
 fn gnu_ansic_shouldquote(value: &str) -> bool {
-    let mut chars = value.chars();
-    while let Some(ch) = chars.next() {
-        if ch.is_control() {
-            return true;
-        }
-        if ch as u32 == crate::executor::substitution_metadata::RAW_BYTE_MARKER_ESCAPE {
-            return true;
-        }
-    }
-    false
+    value.chars().any(|ch| ch.is_control())
 }
 
 /// strtrans.c ansic_quote: render the `$'...'` form. Named escapes for the
 /// C specials, `\\` and `\'` verbatim, other non-printing characters as
-/// three-digit octal escapes. Raw byte markers (U+E000 pair from
-/// `$'\NNN'` decoding of bytes >= 0x80) are decoded back to the original
-/// byte and rendered as three-digit octal, matching GNU's ISPRINT-based
-/// treatment of non-printable single bytes in a C/UTF-8 locale.
+/// three-digit octal escapes.
 fn gnu_ansic_quote(value: &str) -> String {
     let mut out = String::from("$'");
-    let mut chars = value.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch as u32 == crate::executor::substitution_metadata::RAW_BYTE_MARKER_ESCAPE {
-            if let Some(next) = chars.next() {
-                let byte = (next as u32
-                    - crate::executor::substitution_metadata::RAW_BYTE_MARKER_FIRST) as u8;
-                out.push_str(&format!("\\{byte:03o}"));
-                continue;
-            }
-        }
+    for ch in value.chars() {
         match ch {
             '\u{1b}' => out.push_str("\\E"),
             '\u{7}' => out.push_str("\\a"),

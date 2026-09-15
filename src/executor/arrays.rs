@@ -9,11 +9,10 @@ mod storage;
 
 pub(super) use mapfile::split_mapfile_input;
 pub(super) use storage::{
-    ansic_quote, ansic_shouldquote, array_indices, array_value_at, array_values,
-    format_indexed_array_storage, format_indexed_array_values, indexed_array_entries,
-    is_array_storage, is_marked_array_var, normalize_array_expanded_value,
-    parse_array_integer_subscript, parse_array_numeric_subscript, parse_array_subscript,
-    quote_array_value, resolve_indexed_array_subscript, store_indexed_array,
+    array_indices, array_value_at, array_values, format_indexed_array_storage,
+    format_indexed_array_values, indexed_array_entries, is_array_storage, is_marked_array_var,
+    normalize_array_expanded_value, parse_array_integer_subscript, parse_array_numeric_subscript,
+    parse_array_subscript, quote_array_value, resolve_indexed_array_subscript, store_indexed_array,
 };
 
 use std::collections::{BTreeMap, HashMap};
@@ -210,14 +209,12 @@ pub(super) fn field_split_positional_values_with_ifs(
         .enumerate()
         .flat_map(|(index, value)| {
             let is_last = index + 1 == value_count;
-            // GNU subst.c: an unquoted `$@`/`$*` expansion produces one word
-            // per positional parameter, then field-splits each. An empty
-            // parameter yields no fields (subst.c list_string discards
-            // empty words from unquoted expansions), so drop it entirely
-            // rather than keeping a spurious empty field (new-exp `${@%%[!/]*}`
-            // where `.` becomes empty after pattern removal).
             let mut fields = if value.is_empty() {
-                Vec::new()
+                if is_last {
+                    Vec::new()
+                } else {
+                    vec![value]
+                }
             } else if let Some(ifs) = ifs.filter(|ifs| ifs.chars().any(|ch| !ch.is_whitespace())) {
                 if ifs.chars().any(is_ifs_whitespace) {
                     split_mixed_ifs(&value, ifs)
