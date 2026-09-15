@@ -10,6 +10,13 @@ Before making compatibility changes, read:
 Key rules:
 
 - **CRITICAL: Always use WSL GNU Bash (`wsl bash`, **5.3.0** at /usr/local/bin/bash — owner-compiled, baseline directive 2026-09-09; legacy 5.2.21 reference via scripts/true-baseline-521.sh) for semantic comparisons — NOT the winuxsh shim, and NOT Git Bash.** The winuxsh shim at PATH `bash` is an older version with different behavior. Git Bash (`D:/Git/bin/bash.exe`) is below rubash in some areas (notably quoting/escaping/braces) and produces wrong baselines there. Compare with a script FILE passed to both shells (see Bash Test Suite below).
+- **GNU C source is the specification.** Every semantic change must cite the
+  owning C function (`file:line func`) in `third_party/bash/` before editing.
+  Do NOT derive behavior from a suite's diff count, from a local pass/fail
+  matrix, from memory, or from `/usr/bin/bash` (5.2.21) / Git Bash / the
+  winuxsh shim. If the C source does not settle the question, say so and mark
+  the change unverified instead of guessing. See *GNU C source is the
+  specification* below.
 - Fix by root-cause subsystem, not by individual expected-output lines.
 - Keep raw suite artifacts under `target/issue-suites/results/`; keep durable
   interpretation in `docs/`.
@@ -24,11 +31,103 @@ Key rules:
 
 ## GNU Source and LLDB Debugging
 
-Compatibility changes must begin from the corresponding GNU Bash C source and
-upstream test body. Record the GNU source function/line range, the Rust semantic
-owner, and the observable probe before editing. For parameter expansion use
-`third_party/bash/subst.c` and `parse.y`; for redirection/fd behavior use
-`redir.c`; for execution state use `execute_cmd.c` and `variables.c`.
+### GNU C source is the specification — never guess
+
+Rubash's contract is "behave like GNU bash 5.3.0". That contract is defined by
+the C source in `third_party/bash/`, so **the C source is the specification** —
+not the test output, not a diff count, and not what "looks symmetric".
+
+Before changing any semantic behavior:
+
+1. **Cite it.** Find the C function that owns the behavior and record
+   `file:line function_name` in the task report and the commit message.
+   Example: `parse.y:5366 read_token_word()` backslash / `PST_NOEXPAND` branch.
+2. **Probe it.** Run the minimal case through WSL GNU Bash 5.3.0 *from a script
+   file* (see Bash Test Suite) and paste the raw output.
+3. **Then edit**, naming the Rust semantic owner and the changed invariant.
+
+Forbidden substitutes for reading the source — each has already produced a wrong
+"fix" in this repo:
+
+- Inferring semantics from a suite's diff count, or from a hand-built pass/fail
+  matrix. A green matrix only proves your model matches the cases you happened
+  to test.
+- Building the rule from "correct-looking symmetry" between parallel code paths
+  (comsub vs non-comsub, quoted vs unquoted, one builtin vs another).
+- Trusting remembered bash behavior, or behavior observed under `/usr/bin/bash`
+  (5.2.21), Git Bash, or the winuxsh shim. None of those is the oracle, and they
+  differ exactly where rubash needs the truth.
+- Generalizing from one example character to a whole class without reading the
+  character-class tables in the C code (`sh_syntaxtab`, `CBSDQUOTE`,
+  `shellbreak()`, `sh_shellmeta()`).
+
+If the C source does not settle the question, say so explicitly and mark the
+change unverified. Do not invent a rationale.
+
+**Worked counter-example (2026-09-13 — keep this one).** A `\$`-inside-`$()`
+quote-removal fix was designed from a 19/20 pass matrix: it did quote removal at
+comsub-body split time and simulated `CTLESC` with carrier bytes. Reading the
+source afterwards showed the model was structurally wrong — GNU does **not**
+strip the backslash inside a command substitution. `parse_comsub()`
+(`parse.y:4451`) sets `PST_NOEXPAND` (`parse.y:4513`), defined at `parser.h:51`
+as *"don't expand anything in read_token_word; for command substitution"*. The
+backslash branch of `read_token_word()` (`parse.y:5368-5375`) responds by
+*keeping* the `\` in the token, setting `quoted = 1`, and using
+`pass_next_character` to mark only the following character
+(`parse.y:5358-5362`) — quote removal is deferred to the inner execution, not
+performed at split time. The matrix-driven version passed 19/20 cases and still
+introduced two new divergences (`$(echo \*)` globbed the cwd; `$(echo "\\")`
+printed `"` instead of `\`). A green local matrix is not evidence.
+
+### Verified GNU entry points
+
+Line numbers are for the vendored tree (`bash.git @b4608166`, Bash-5.3 patch 15).
+Re-verify with `grep -n` before citing; treat this table as a starting point, not
+gospel.
+
+| Topic | Authoritative location |
+| --- | --- |
+| Word/token assembly, quoting state | `parse.y:5305 read_token_word()` |
+| Backslash handling + `PST_NOEXPAND` | `parse.y:5366-5398`, `pass_next_character` at `5358-5362` |
+| Where `CTLESC`/`CTLNUL` get protected | `parse.y:5694-5706` (`got_character` vs `got_escaped_character`) |
+| `PST_NOEXPAND` meaning and scope | `parser.h:51`; cleared at `parse.y:7048`, `parse.y:7127` |
+| `${...}` text matching | `parse.y:3877 parse_matched_pair()` |
+| Command substitution body parse / reprint | `parse.y:4451 parse_comsub()`, `parse.y:4632 print_comsub()` |
+| Word expansion driver | `subst.c:11229 expand_word_internal()` |
+| `${parameter...}` expansion | `subst.c:9777 parameter_brace_expand()`, `subst.c:7663 parameter_brace_expand_word()` |
+| Command substitution execution | `subst.c:7143 command_substitute()` |
+| Verbatim extraction | `subst.c:1148 string_extract_verbatim()` |
+| `CTLESC` dequote only | `subst.c:4692 dequote_escapes()`, `subst.c:4901 remove_quoted_escapes()` |
+| Final dequote | `subst.c:4807 dequote_string()`, `subst.c:4865 dequote_word()` |
+| Expanding a word list | `subst.c:13219 expand_word_list_internal()` |
+| Redirection word expansion | `redir.c:298 redirection_expand()` |
+| Command execution dispatch | `execute_cmd.c:624 execute_command_internal()` |
+| Job wait | `jobs.c:3064 wait_for()`, `nojobs.c:795 wait_for()` |
+| Variables and attributes | `variables.c`; builtin option tables under `builtins/*.def` |
+
+### Carrier bytes are a `CTLESC`/`CTLNUL` port, not a local trick
+
+The in-band carrier bytes rubash uses to encode quoting state stand in for GNU's
+`CTLESC` / `CTLNUL` mechanism. This is the highest-risk area of the codebase.
+Any change touching them must be justified against `parse.y:5694-5706`,
+`subst.c:4692 dequote_escapes()`, `subst.c:4807 dequote_string()` and
+`subst.c:1148 string_extract_verbatim()`, and validated with a full 83-suite
+ledger. A focused suite count is not enough: `$'...'`, PUA markers and carrier
+handling have regressed under edits that looked obviously safe.
+
+### Keep the measurement honest
+
+- **Build before you measure.** A ledger from a stale binary is worse than no
+  ledger. Confirm the script's build step actually succeeded — a failed
+  `cargo.exe` lookup leaves the old binary in place and the script still prints
+  numbers.
+- **A clean environment is part of the measurement.** Before any baseline run on
+  the Windows/niu side: `unset BASH_ENV; unset -f rm rmdir unlink; unset
+  WINUXSH_ROOT`, then start WSL. Diagnostic: if a quoting-sensitive suite moves
+  by a large positive amount (e.g. `dstack 0 -> 50`), `WINUXSH_ROOT` leaked and
+  the whole run is void.
+- Report environment-bound suites separately from rubash-caused ones, and state
+  which project owns each line (see the WinuxCmd section below).
 
 Use LLDB for Rust runtime control-flow and state inspection when a focused
 mismatch is not explained by source reading alone. This repository uses the
