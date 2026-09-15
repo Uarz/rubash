@@ -107,6 +107,25 @@ fn remove_residual_shell_quotes(arg: &str, unescape_alias_quotes: bool) -> Strin
         return arg[1..arg.len() - 1].to_string();
     }
 
+    // Workaround: $'...' inside $(...) is not recognized by the word-based
+    // command substitution shortcut (split_shell_words_with_quote_info in
+    // alias_helpers.rs treats $ as literal and '...' as single-quoted,
+    // converting \ to \x15). When echo receives an argument starting with $
+    // followed by \x15 markers (protected backslashes from single quotes),
+    // decode the ANSI-C escapes to recover the original $'...' content.
+    // The \x1f and \x1a markers from push_single_quoted_shell_word_char
+    // (literal $ and ` inside single quotes) are restored after decoding;
+    // they are NOT produced by decode_ansi_c_quoted's push_ansi_c_byte
+    // (which emits raw-byte markers for carrier bytes), so the replace
+    // only affects the single-quote-origin markers.
+    if arg.starts_with('$') && arg.contains('\x15') {
+        let body = arg[1..].replace('\x15', "\\");
+        let decoded = crate::lexer::decode_ansi_c_quoted(&body);
+        return decoded
+            .replace('\x1f', "$")
+            .replace('\x1a', "`");
+    }
+
     arg.to_string()
 }
 
