@@ -833,8 +833,16 @@ fn decode_double_quotes_in_quoted_parameter_word(word: &str) -> String {
             && index + 1 < chars.len()
             && matches!(chars[index + 1], '$' | '`' | '"' | '\\' | '}' | '\n')
         {
-            output.push(chars[index]);
-            output.push(chars[index + 1]);
+            // `\\` becomes the escaped-backslash marker (\x14) so the
+            // expansion walker treats it as data, not as an escape for
+            // the following character (GNU slashify_in_quotes: `\\` → `\`
+            // but does NOT escape `$`; rhs-exp: `\\$selvecs` → `\&m68kcoff_vec`).
+            if chars[index + 1] == '\\' {
+                output.push('\x14');
+            } else {
+                output.push(chars[index]);
+                output.push(chars[index + 1]);
+            }
             index += 2;
             continue;
         }
@@ -856,13 +864,13 @@ fn decode_double_quotes_in_quoted_parameter_word(word: &str) -> String {
                     index += 2;
                     match escaped {
                         '\n' => {}
-                        // Keep `\\` intact so the expansion walker can
-                        // consume it as a literal backslash and let the
-                        // following character (e.g. `$var`) expand normally
-                        // (rhs-exp.tests: `"\\$selvecs"` → `\&m68kcoff_vec`).
+                        // `\\` becomes the escaped-backslash marker (\x14)
+                        // so the expansion walker treats it as data, not as
+                        // an escape for the following character (GNU
+                        // slashify_in_quotes: `\\` → `\` but does NOT escape
+                        // `$`; rhs-exp: `"\\$selvecs"` → `\&m68kcoff_vec`).
                         '\\' => {
-                            output.push('\\');
-                            output.push('\\');
+                            output.push('\x14');
                         }
                         // Protect `$` and `` ` `` from re-expansion: inside
                         // double quotes `\$` and `\`` are literal data that
@@ -899,13 +907,25 @@ fn unescape_double_quoted_backslashes(value: &str) -> String {
     let mut output = String::new();
     let mut chars = value.chars().peekable();
     while let Some(ch) = chars.next() {
+        // The escaped-backslash marker (\x14) from decode_double_quotes...
+        // resolves to a literal backslash here. The mut path already did
+        // this via restore_protected_replacement_quotes; the non-mut path
+        // reaches this function with \x14 still intact.
+        if ch == '\x14' {
+            output.push('\\');
+            continue;
+        }
         if ch == '\\' {
             if let Some(next) = chars.peek().copied() {
                 // `}` joins the escapable set because a double-quoted
                 // ${...} alternate already lost one escaping level while
                 // the body was extracted (subst.c): GNU gives `}z` for
                 // `"${IFS+\}z}"` (posixexp2 cases 9/14/15).
-                if matches!(next, '$' | '`' | '"' | '\\' | '}' | '\n') {
+                // `\\` is no longer in the set: decode_double_quotes...
+                // already converted `\\` to \x14, so a bare `\\` reaching
+                // here is two literal backslashes (from \x\x or expansion
+                // data) and must NOT be collapsed to `\`.
+                if matches!(next, '$' | '`' | '"' | '}' | '\n') {
                     chars.next();
                     if next != '\n' {
                         output.push(next);
