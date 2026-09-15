@@ -34,7 +34,8 @@ impl Executor {
         word: &str,
         context: SubstitutionQuoteContext,
     ) -> String {
-        self.expand_embedded_parameters_mut_inner(word, context, false, false)
+        let heredoc = matches!(context, SubstitutionQuoteContext::HereDocument);
+        self.expand_embedded_parameters_mut_inner(word, context, heredoc, false)
     }
 
     // Alternate-operator rhs (`${var-word}` word half) expansion: the same
@@ -586,6 +587,42 @@ impl Executor {
                 // below, which then swallows the rest of the word (unicode1.sub
                 // array elements: `A=([k]=$'\001')` stored `$'\001`).
                 // Decode the span here, the way the lexer does for whole words.
+                //
+                // Heredoc exception: GNU does NOT expand `$'...'` in
+                // here-documents (subst.c heredoc_expand calls
+                // expand_string_to_string with Q_HERE_DOCUMENT, and
+                // param_expand has no case for `'` — `$'` falls through to
+                // the default variable-name lookup, which rejects `'` and
+                // outputs `$` literally, then `'` is a literal character).
+                // nquote5.sub: `od -c <<EOF` with body `a$'\01'b` must keep
+                // the literal text `a$'\01'b`, not decode to `a\001b`.
+                Some('\'') if heredoc => {
+                    chars.next();
+                    output.push('$');
+                    output.push('\'');
+                    // Copy the ANSI-C quoted body verbatim (no decode).
+                    let mut escaped = false;
+                    for quoted_ch in chars.by_ref() {
+                        if escaped {
+                            output.push('\\');
+                            output.push(quoted_ch);
+                            escaped = false;
+                            continue;
+                        }
+                        if quoted_ch == '\\' {
+                            escaped = true;
+                            continue;
+                        }
+                        if quoted_ch == '\'' {
+                            output.push('\'');
+                            break;
+                        }
+                        output.push(quoted_ch);
+                    }
+                    if escaped {
+                        output.push('\\');
+                    }
+                }
                 Some('\'') => {
                     chars.next();
                     let mut quoted = String::new();

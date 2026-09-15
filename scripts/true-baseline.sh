@@ -26,6 +26,14 @@ RUB="$REPO/target/debug/rubash.exe"
 LOG="$REPO/target/issue-suites/results/true-baseline-ledger.log"
 TESTS_SRC="$REPO/third_party/bash/tests"
 
+# ---- WinuxCmd 1.0.6: prefer over Git coreutils 8.32 for the Rubash side -----
+# WinuxCmd 1.0.6 matches GNU coreutils 9.4 byte-for-byte; Git's 8.32 does not.
+# NOTE: The Rubash side runs as a Windows process inside a WSL-launched script.
+# The WSL PATH uses Linux-style /mnt/c/... paths that Windows processes cannot
+# resolve directly. Rubash inherits the Windows PATH from the WSL interop layer,
+# which typically resolves to Git's coreutils 8.32. This is a known harness
+# limitation; od/expr output format differences from this are NOT rubash bugs.
+
 # ---- GNU baseline is CONTRACTUAL: GNU bash 5.3.0 (owner directive) ---------
 # The owner compiled and installed GNU bash 5.3.0 into /usr/local/bin
 
