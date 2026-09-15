@@ -20,6 +20,15 @@ pub(in crate::builtins::declare) fn append_array_value(
     let scalar_append = !value.starts_with('(');
 
     for token in parse_array_tokens(value) {
+        // GNU arrayfunc.c:753 assign_compound_array_list: only words with
+        // the W_ASSIGNMENT flag (set during parsing) are checked for
+        // [subscript]=value form. Words produced by field-splitting an
+        // expanded parameter (tagged with ARRAY_FIELD_SPLIT_MARKER \x10)
+        // are stored as bare elements even if they look like [2]=2]
+        // (array19.sub: declare -a var=($value) with value containing
+        // "[2]=2]" stores [3]="[2]=2]", not [2]="2]").
+        let from_field_split = token.starts_with('\x10');
+        let token = token.strip_prefix('\x10').unwrap_or(&token);
         if let Some(matches) = pathname_expand_array_token(&token) {
             for value in matches {
                 entries.insert(next_index, value);
@@ -28,32 +37,39 @@ pub(in crate::builtins::declare) fn append_array_value(
             continue;
         }
 
-        if let Some((left, rhs)) = token.split_once("+=") {
-            if let Some(index) = array_assignment_index(left, &entries) {
-                let current = entries.get(&index).cloned().unwrap_or_default();
-                let rhs = unquote_storage_value(rhs);
-                let value = if integer {
-                    (eval_arith_value(&current) + eval_arith_value(&rhs)).to_string()
-                } else {
-                    format!("{current}{rhs}")
-                };
-                entries.insert(index, value);
-                next_index = index + 1;
-                continue;
+        // GNU arrayfunc.c assign_compound_array_list: the raw compound word
+        // keeps its quote characters, but [subscript]=value detection must
+        // see through outer quotes (array19.sub: "0)]=1" is a bare element,
+        // not a [0)]= assignment; "[2]=2]" IS a [2]= assignment).
+        let unquoted_token = unquote_storage_value(&token);
+        if !from_field_split {
+            if let Some((left, rhs)) = unquoted_token.split_once("+=") {
+                if let Some(index) = array_assignment_index(left, &entries) {
+                    let current = entries.get(&index).cloned().unwrap_or_default();
+                    let rhs = unquote_storage_value(rhs);
+                    let value = if integer {
+                        (eval_arith_value(&current) + eval_arith_value(&rhs)).to_string()
+                    } else {
+                        format!("{current}{rhs}")
+                    };
+                    entries.insert(index, value);
+                    next_index = index + 1;
+                    continue;
+                }
+                if array_assignment_has_subscript(left) {
+                    continue;
+                }
             }
-            if array_assignment_has_subscript(left) {
-                continue;
-            }
-        }
 
-        if let Some((left, rhs)) = token.split_once('=') {
-            if let Some(index) = array_assignment_index(left, &entries) {
-                entries.insert(index, unquote_storage_value(rhs));
-                next_index = index + 1;
-                continue;
-            }
-            if array_assignment_has_subscript(left) {
-                continue;
+            if let Some((left, rhs)) = unquoted_token.split_once('=') {
+                if let Some(index) = array_assignment_index(left, &entries) {
+                    entries.insert(index, unquote_storage_value(rhs));
+                    next_index = index + 1;
+                    continue;
+                }
+                if array_assignment_has_subscript(left) {
+                    continue;
+                }
             }
         }
 
@@ -62,7 +78,7 @@ pub(in crate::builtins::declare) fn append_array_value(
         // element; only unquoted whitespace splits).
         let quoted_token = (token.starts_with('"') && token.ends_with('"'))
             || (token.starts_with('\'') && token.ends_with('\''));
-        let token = unquote_storage_value(&token);
+        let token = unquoted_token;
         let unquoted_command_substitution = token.starts_with('\x1d');
         let token = token.strip_prefix('\x1d').unwrap_or(&token);
         if token.contains(char::is_whitespace) && (!quoted_token || unquoted_command_substitution) {
@@ -162,5 +178,9 @@ fn array_assignment_index(left: &str, entries: &BTreeMap<usize, String>) -> Opti
 }
 
 fn array_assignment_has_subscript(left: &str) -> bool {
-    left.contains('[') || left.contains(']')
+    // GNU arrayfunc.c:753 assign_compound_array_list: a word is a
+    // [subscript]=value assignment only when it starts with `[`. A bare
+    // value like `0)]=1` (array19.sub) contains `]` but is not a subscript
+    // assignment.
+    left.starts_with('[')
 }
