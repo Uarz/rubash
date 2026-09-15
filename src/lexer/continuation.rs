@@ -15,12 +15,17 @@ pub(super) fn ends_with_unquoted_backslash(input: &str) -> bool {
     let chars: Vec<char> = input.chars().collect();
     let mut stack: Vec<char> = Vec::new();
     let mut i = 0usize;
+    // Track word boundary for comment detection: a `#` at the top level
+    // (no quote on stack) at a word boundary starts a comment, and a
+    // trailing backslash inside a comment is NOT a line continuation.
+    let mut comment_start = true;
     while i < chars.len() {
         let ch = chars[i];
         let top = stack.last().copied();
         if top == Some('\'') {
             if ch == '\'' {
                 stack.pop();
+                comment_start = false;
             }
             i += 1;
             continue;
@@ -40,6 +45,7 @@ pub(super) fn ends_with_unquoted_backslash(input: &str) -> bool {
             }
             if ch == '"' {
                 stack.pop();
+                comment_start = false;
                 i += 1;
                 continue;
             }
@@ -68,6 +74,7 @@ pub(super) fn ends_with_unquoted_backslash(input: &str) -> bool {
             }
             if ch == '`' {
                 stack.pop();
+                comment_start = false;
             }
             i += 1;
             continue;
@@ -97,6 +104,7 @@ pub(super) fn ends_with_unquoted_backslash(input: &str) -> bool {
             }
             if ch == ')' {
                 stack.pop();
+                comment_start = false;
                 i += 1;
                 continue;
             }
@@ -112,6 +120,17 @@ pub(super) fn ends_with_unquoted_backslash(input: &str) -> bool {
             continue;
         }
         // Top-level (no quote or other)
+        // A `#` at a word boundary starts a comment — the rest of the
+        // line is not scanned for backslash-newline continuation.
+        if ch == '#' && comment_start {
+            return false;
+        }
+        if ch.is_whitespace() {
+            comment_start = true;
+            i += 1;
+            continue;
+        }
+        comment_start = false;
         if ch == '\'' {
             stack.push('\'');
             i += 1;
