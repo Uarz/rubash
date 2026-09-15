@@ -417,8 +417,13 @@ fn scan_line_for_comsub_heredoc_headers(line: &str) -> (Vec<ComsubHeredocHeader>
     let mut index = 0usize;
     let mut single = false;
     let mut double = false;
+    // `index` always sits on a char boundary: ASCII tokens step one byte and
+    // every other char steps by its UTF-8 length. Widening bytes with
+    // `bytes[i] as char` let continuation bytes 0x85/0xa0 (inside e.g.
+    // U+60A0 悠 or the U+E0A0 powerline glyph) match is_whitespace and made
+    // delimiter slices land mid-char (panic, same class as niubash#92).
     while index < bytes.len() {
-        let ch = bytes[index] as char;
+        let ch = line[index..].chars().next().expect("index is a boundary");
         match ch {
             '\'' if !double => {
                 single = !single;
@@ -429,7 +434,7 @@ fn scan_line_for_comsub_heredoc_headers(line: &str) -> (Vec<ComsubHeredocHeader>
                 index += 1;
             }
             '\\' if !single => {
-                index += 2;
+                index += 1 + char_len_at(line, index + 1);
             }
             '$' if !single
                 && bytes.get(index + 1) == Some(&b'(')
@@ -461,15 +466,15 @@ fn scan_line_for_comsub_heredoc_headers(line: &str) -> (Vec<ComsubHeredocHeader>
                 }
                 let start = index;
                 while index < bytes.len() {
-                    let current = bytes[index] as char;
+                    let current = line[index..].chars().next().expect("index is a boundary");
                     if current.is_whitespace() || matches!(current, ';' | '|' | '&' | ')') {
                         break;
                     }
                     if current == '\\' && index + 1 < bytes.len() {
-                        index += 2;
+                        index += 1 + char_len_at(line, index + 1);
                         continue;
                     }
-                    index += 1;
+                    index += current.len_utf8();
                 }
                 let raw = &line[start..index.min(line.len())];
                 let value: String = raw
@@ -481,7 +486,6 @@ fn scan_line_for_comsub_heredoc_headers(line: &str) -> (Vec<ComsubHeredocHeader>
                 } else {
                     value
                 };
-                let raw = &line[start..index.min(line.len())];
                 if index >= bytes.len() && raw.ends_with('\\') && !raw.ends_with("\\\\") {
                     // The delimiter continues on the next physical line
                     // (`<<\EOT\` + `4`): resume this scan after the join.
@@ -496,12 +500,20 @@ fn scan_line_for_comsub_heredoc_headers(line: &str) -> (Vec<ComsubHeredocHeader>
                 consumed = index;
             }
             _ => {
-                index += 1;
+                index += ch.len_utf8();
                 consumed = index;
             }
         }
     }
     (headers, consumed)
+}
+
+/// UTF-8 length of the char starting at `index`; 1 when `index` is out of
+/// range (trailing escape at end of line), matching the old `+= 2` step.
+fn char_len_at(line: &str, index: usize) -> usize {
+    line.get(index..)
+        .and_then(|rest| rest.chars().next())
+        .map_or(1, char::len_utf8)
 }
 
 pub fn has_unclosed_input_syntax(input: &str) -> bool {
