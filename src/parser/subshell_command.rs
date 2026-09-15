@@ -21,7 +21,14 @@ pub(super) fn parse_subshell_command(
     let body = parse(&tokens[start + 1..close]).commands;
 
     let mut command = CommandNode::new();
-    command.line = tokens.get(start).map(|token| token.position);
+    // GNU make_cmd.c:784 sets temp->line = line_number, which is the
+    // parser's current line when the `subshell: '(' compound_list ')'`
+    // rule reduces — i.e. the line of the closing `)` token, not the
+    // opening `(`. This matters for error reporting: execute_cmd.c
+    // SET_LINE_NUMBER(command->value.Subshell->line) sets the executing
+    // line to the `)` line, so diagnostics inside the subshell (e.g.
+    // "break: is a special builtin" in func5.sub) report the `)` line.
+    command.line = tokens.get(close).map(|token| token.position);
     command.subshell_command = Some(Box::new(SubshellCommand {
         open_delimiter: "(".to_string(),
         open_delimiter_metadata: token_metadata(&tokens[start]),

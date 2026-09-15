@@ -259,18 +259,51 @@ impl Executor {
 }
 
 fn recho_display_arg(arg: &str) -> String {
-    // Decode raw byte markers (U+E000 pairs) to actual bytes first, so
-    // control bytes like 0x1c (from $'\c\\') are displayed as ^\ rather
-    // than being passed through as private-use area characters and then
-    // decoded to raw bytes by write_buffered_builtin_output (exp1.sub
-    // $'\c\\\001 \c\\\177' → ^\^A ^\^?).
-    let decoded = crate::executor::substitution_metadata::decode_raw_byte_markers(
-        arg.as_bytes(),
-    );
-    let decoded = String::from_utf8_lossy(&decoded);
+    // GNU support/recho.c strprint iterates over raw bytes: bytes < 0x20
+    // become ^X, 0x7f becomes ^?, and all other bytes (including >= 0x80)
+    // pass through verbatim. Rubash words carry bytes >= 0x80 and certain
+    // C0 control bytes as U+E000 raw-byte marker pairs; iterate over the
+    // original string so marker pairs are decoded to their byte values
+    // without String::from_utf8_lossy replacing lone high bytes with
+    // U+FFFD (nquote4.tests $'ab\x{cd}e' → ab<0xCD>e, not ab<FFFD>e).
+    // High bytes are re-encoded as marker pairs so the output String stays
+    // valid UTF-8 and write_buffered_builtin_output decodes them back to
+    // raw bytes at the output boundary.
+    use crate::executor::substitution_metadata::{
+        encode_raw_byte_marker, RAW_BYTE_MARKER_ESCAPE, RAW_BYTE_MARKER_FIRST,
+        RAW_BYTE_MARKER_LAST,
+    };
     let mut output = String::new();
-    for ch in decoded.chars() {
-        if ch == '\x7f' {
+    let mut chars = arg.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch as u32 == RAW_BYTE_MARKER_ESCAPE {
+            let peeked = chars.peek().copied();
+            match peeked {
+                Some(next_ch) if next_ch as u32 == RAW_BYTE_MARKER_ESCAPE => {
+                    // Doubled sentinel: literal U+E000 in payload text.
+                    chars.next();
+                    output.push(ch);
+                }
+                Some(next_ch)
+                    if (RAW_BYTE_MARKER_FIRST..=RAW_BYTE_MARKER_LAST).contains(&(next_ch as u32)) =>
+                {
+                    chars.next();
+                    let byte = (next_ch as u32 - RAW_BYTE_MARKER_FIRST) as u8;
+                    if byte < 0x20 {
+                        output.push('^');
+                        output.push((byte + 0x40) as char);
+                    } else if byte == 0x7f {
+                        output.push_str("^?");
+                    } else {
+                        // Re-encode high byte for write_buffered_builtin_output.
+                        output.push_str(&encode_raw_byte_marker(byte));
+                    }
+                }
+                _ => {
+                    output.push(ch);
+                }
+            }
+        } else if ch == '\x7f' {
             output.push_str("^?");
         } else if ch.is_ascii_control() {
             output.push('^');
