@@ -853,6 +853,9 @@ impl Executor {
             return Vec::new();
         }
         self.arithmetic_nonfatal_error.set(saved_nonfatal);
+        // Apply side-effect writes from arithmetic evaluation in array
+        // subscripts (e.g. `count++` in `${arr[$((count++))]}`).
+        self.apply_pending_subscript_writes();
         // GNU does not apply quote removal to parameter-expansion results:
         // quotes in an expanded value are literal data, not syntax. Calling
         // remove_shell_quotes here dropped a trailing quote such as the x'

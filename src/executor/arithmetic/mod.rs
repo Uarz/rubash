@@ -498,6 +498,23 @@ pub(crate) fn eval_conditional_arith_value(
     eval_mutable_arith_value(value, &mut env_vars)
 }
 
+/// Like eval_conditional_arith_value, but also returns the variables that
+/// were modified by side effects (e.g. count++ in ${arr[$((count++))]}).
+/// The caller is responsible for applying these writes to the real env_vars.
+pub(crate) fn eval_conditional_arith_value_with_writes(
+    value: &str,
+    env_vars: &HashMap<String, String>,
+) -> (Option<i128>, Vec<(String, String)>) {
+    let mut cloned = env_vars.clone();
+    let result = eval_mutable_arith_value(value, &mut cloned);
+    let writes = cloned
+        .iter()
+        .filter(|(name, new_value)| env_vars.get(name.as_str()) != Some(new_value))
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect();
+    (result, writes)
+}
+
 /// Like `eval_conditional_arith_value`, but also reports the error category
 /// from the actual evaluation, so callers can classify fatality without
 /// re-evaluating the expression in a fresh environment (GNU expr.c raises

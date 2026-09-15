@@ -1,6 +1,36 @@
 use super::*;
 
+thread_local! {
+    /// Side-effect writes from arithmetic evaluation in array subscripts
+    /// (e.g. `count++` in `${arr[$((count++))]}`). Applied by the mutable
+    /// caller after `expand_braced_indexed_parameter` returns.
+    pub(in crate::executor) static PENDING_SUBSCRIPT_WRITES:
+        std::cell::RefCell<Vec<(String, String)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
 impl Executor {
+    /// Apply side-effect writes from arithmetic evaluation in array
+    /// subscripts (e.g. `count++` in `${arr[$((count++))]}`) to the real
+    /// env_vars. Called by the mutable parameter expansion path after
+    /// `expand_braced_indexed_parameter` or `array_element_parameter_value`
+    /// returns.
+    pub(in crate::executor) fn apply_pending_subscript_writes(&mut self) {
+        let writes = PENDING_SUBSCRIPT_WRITES.with(|w| std::mem::take(&mut *w.borrow_mut()));
+        for (name, value) in writes {
+            if self.env_vars.get(&name) != Some(&value) {
+                self.env_vars.insert(name.clone(), value.clone());
+                // Also sync to shell_state.variables, which is checked
+                // first by shell_variable_value (variable_state.rs:178-184).
+                if let Some(variable) = self.shell_state.variables.get_mut(&name) {
+                    variable.value = crate::shell::ShellValue::Scalar(value);
+                } else if !name.starts_with("__RUBASH_") {
+                    let _ = self.shell_state.variables.set_scalar(&name, &value);
+                }
+            }
+        }
+    }
+
     pub(in crate::executor) fn expand_braced_indexed_parameter(
         &self,
         name: &str,
@@ -144,7 +174,16 @@ impl Executor {
                 .and_then(|e| e.strip_suffix("))"))
                 .map(|e| e.trim())
                 .unwrap_or(raw_key);
-            if let Some(index) = eval_conditional_arith_value(expr, &self.env_vars) {
+            if let Some(index) = {
+                let (result, writes) =
+                    eval_conditional_arith_value_with_writes(expr, &self.env_vars);
+                if !writes.is_empty() {
+                    PENDING_SUBSCRIPT_WRITES.with(|w| {
+                        w.borrow_mut().extend(writes);
+                    });
+                }
+                result
+            } {
                 if let Some(value) = self.env_vars.get(array_name) {
                     if let Some(resolved) = resolve_indexed_array_subscript(value, index) {
                         if let Some(element) = array_value_at(value, resolved) {

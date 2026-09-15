@@ -1,8 +1,8 @@
 use super::*;
 use super::storage::quote_assoc_display_key;
 use crate::executor::{
-    assoc_hash_ordered_entries, assoc_hash_ordered_values, assoc_keys, DECLARED_UNSET_VARS,
-    NAMEREF_VARS,
+    assoc_hash_ordered_entries, assoc_hash_ordered_values, assoc_keys,
+    eval_conditional_arith_value_with_writes, DECLARED_UNSET_VARS, NAMEREF_VARS,
 };
 
 impl Executor {
@@ -120,12 +120,48 @@ impl Executor {
         }
         // Use expand_arithmetic_special_parameters for array subscripts so that
         // $- expands to 0 (not shell flags) in arithmetic contexts. See array.tests line 60.
-        let key =
-            strip_matching_quotes(&self.expand_arithmetic_special_parameters(key)).to_string();
+        // For $((...)) subscripts, expand_arithmetic_special_parameters would
+        // evaluate the arithmetic in a cloned env (losing side effects like
+        // count++). Instead, detect $((...)) and evaluate directly with
+        // eval_conditional_arith_value_with_writes which captures side effects.
+        let key = if key.strip_prefix("$((").is_some_and(|rest| rest.strip_suffix("))").is_some()) {
+            let expr = key
+                .strip_prefix("$((")
+                .unwrap()
+                .strip_suffix("))")
+                .unwrap()
+                .trim();
+            // Still expand special parameters ($#, $-) inside the expression.
+            let expr = expr
+                .replace("$#", &self.positional_params.len().to_string())
+                .replace("$-", "0");
+            let (result, writes) = eval_conditional_arith_value_with_writes(&expr, &self.env_vars);
+            if !writes.is_empty() {
+                crate::executor::expand_braced_indices::PENDING_SUBSCRIPT_WRITES
+                    .with(|w| {
+                        w.borrow_mut().extend(writes);
+                    });
+            }
+            match result {
+                Some(v) => v.to_string(),
+                None => return None,
+            }
+        } else {
+            strip_matching_quotes(&self.expand_arithmetic_special_parameters(key)).to_string()
+        };
         if key.trim() == "*" || key.trim() == "@" {
             return None;
         }
-        let Some(index) = eval_conditional_arith_value(&key, &self.env_vars) else {
+        let Some(index) = ({
+            let (result, writes) = eval_conditional_arith_value_with_writes(&key, &self.env_vars);
+            if !writes.is_empty() {
+                crate::executor::expand_braced_indices::PENDING_SUBSCRIPT_WRITES
+                    .with(|w| {
+                        w.borrow_mut().extend(writes);
+                    });
+            }
+            result
+        }) else {
             self.arithmetic_nonfatal_error.set(true);
             eprintln!(
                 "{}{}: bad array subscript",
