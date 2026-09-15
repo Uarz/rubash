@@ -94,6 +94,41 @@ pub(in crate::executor) fn split_shell_words_with_quote_info(source: &str) -> Ve
             ('$', Some('"')) if chars.peek().copied() == Some('(') => {
                 copy_dollar_paren_word(&mut current, &mut chars);
             }
+            // GNU parse.y: `$'...'` is an ANSI-C quoted word (outside double
+            // quotes only). The body is decoded (strtrans.c ansicstr) and the
+            // result is literal data, so a `)` inside the quote does NOT close
+            // the enclosing command substitution (nquote5.sub:
+            // `$(echo a$'\01)'b)` -> `a^A)b`). Handle this before the bare `'`
+            // arm so the single quote is not mistaken for an ordinary quote
+            // start. Inside double quotes `$'` is literal `$` + `'`, not an
+            // ANSI-C quote (bash manual: $'...' is not recognized within
+            // double quotes).
+            ('$', None) if chars.peek().copied() == Some('\'') => {
+                chars.next();
+                let mut body = String::new();
+                let mut escaped = false;
+                for body_ch in chars.by_ref() {
+                    if escaped {
+                        body.push('\\');
+                        body.push(body_ch);
+                        escaped = false;
+                        continue;
+                    }
+                    if body_ch == '\\' {
+                        escaped = true;
+                        continue;
+                    }
+                    if body_ch == '\'' {
+                        break;
+                    }
+                    body.push(body_ch);
+                }
+                let decoded = crate::lexer::decode_ansi_c_quoted(&body);
+                // Mark the word as quoted: ANSI-C quotes suppress field
+                // splitting and tilde expansion like other quotes.
+                word_quoted = true;
+                current.push_str(&decoded);
+            }
             ('<', None) if chars.peek().copied() == Some('(') => {
                 copy_process_substitution_word(&mut current, &mut chars);
             }

@@ -838,6 +838,7 @@ impl Executor {
         // no output, not even an empty line). We signal this via
         // arithmetic_nonfatal_error; drop the word when it is set.
         if self.arithmetic_nonfatal_error.get() {
+            eprintln!("DEBUG: nonfatal_error set, dropping word");
             self.arithmetic_nonfatal_error.set(saved_nonfatal);
             return Vec::new();
         }
