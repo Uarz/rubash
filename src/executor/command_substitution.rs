@@ -711,6 +711,7 @@ impl Executor {
             debug_trap_function_line: None,
             last_command_substitution_status: Cell::new(None),
             last_heredoc_warning_source: RefCell::new(None),
+            comsub_leading_newlines: Cell::new(0),
             current_shell_substitution_exit: Cell::new(self.current_shell_substitution_exit.get()),
             last_command_substitution_parse_error: Cell::new(false),
             special_builtin_failed: Cell::new(false),

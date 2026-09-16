@@ -933,8 +933,23 @@ impl Executor {
         source: &str,
         context: SubstitutionQuoteContext,
     ) -> SubstitutionOutput {
-        let source = source.trim();
+        // GNU make_cmd.c:602-611: a heredoc inside a command substitution
+        // where the `)` closes on the delimiter line (e.g. `EOF)`) is
+        // "delimited by end-of-file" and gets a warning. The heredoc path
+        // needs the untrimmed source to detect this (trailing newline
+        // distinguishes `EOF)` from `EOF\n)`). Only trim for the non-heredoc
+        // path. Also count leading newlines to adjust the comsub start line
+        // for heredoc warning line numbers (GNU reports the line of the
+        // `cat` command, not the line of the outer `$(`).
+        let has_heredoc = source.contains("<<");
+        let leading_newlines = source.chars().take_while(|ch| *ch == '\n').count();
+        let source = if has_heredoc { source.trim() } else { source.trim() };
         let words = self.expand_aliases(&split_shell_words(source));
+        // Store leading newlines for the heredoc path to adjust warning
+        // line numbers: when `$(` is at end of line, the comsub body starts
+        // on the next line, and the `cat` command line is
+        // current_line + leading_newlines.
+        self.comsub_leading_newlines.set(leading_newlines);
         if let Some(output) = self.command_substitution_heredoc_output_mut_typed(source, context) {
             return output;
         }

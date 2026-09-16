@@ -497,6 +497,10 @@ pub struct Executor {
     /// (expand_assignment_value_inner → expand_command_substitution_mut_typed
     /// and expand_embedded_parameters_mut → expand_command_substitution_mut).
     last_heredoc_warning_source: RefCell<Option<String>>,
+    /// Leading newlines in the comsub source (before trimming). Used to
+    /// adjust heredoc warning line numbers: when `$(` is at end of line,
+    /// the comsub body starts on the next line.
+    comsub_leading_newlines: Cell<usize>,
     /// A current-shell (`${ ...; }` / `${| ...; }`) body that ran `exit N`
     /// aborts the enclosing (sub)shell with status N (GNU subst.c: the
     /// nofork body shares the shell's exit path). The walker records the

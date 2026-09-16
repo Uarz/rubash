@@ -365,7 +365,16 @@ fn tokenize_with_heredocs(
             let mut continued_body_line = String::new();
             let mut found_delimiter = false;
             let mut found_with_warning = false;
-            for body_line in lines.by_ref() {
+            while let Some(body_line) = lines.next() {
+                // Skip the trailing empty string produced by split('\n')
+                // when the input ends with '\n' (matching the main loop's
+                // str::lines() semantics). Without this, an unterminated
+                // heredoc at EOF gets an extra empty body line, making the
+                // warning line number off by 1.
+                if body_line.is_empty() && lines.peek().is_none() {
+                    break;
+                }
+                let body_line = body_line.to_string();
                 position += body_line.len() + 1;
                 line_number += 1;
                 let mut raw_line = body_line.to_string();

@@ -244,7 +244,8 @@ impl Executor {
             .env_vars
             .get("__RUBASH_CURRENT_LINE")
             .and_then(|line| line.parse::<usize>().ok())
-            .unwrap_or(1);
+            .unwrap_or(1)
+            + self.comsub_leading_newlines.get();
         let tokens =
             crate::lexer::tokenize_comsub_body(&source, self.posix_mode_enabled(), comsub_start_line, true);
         let ast = crate::parser::parse(&tokens);
@@ -327,7 +328,8 @@ impl Executor {
             .env_vars
             .get("__RUBASH_CURRENT_LINE")
             .and_then(|line| line.parse::<usize>().ok())
-            .unwrap_or(1);
+            .unwrap_or(1)
+            + self.comsub_leading_newlines.get();
         let tokens =
             crate::lexer::tokenize_comsub_body(&source, self.posix_mode_enabled(), comsub_start_line, true);
         let ast = crate::parser::parse(&tokens);
