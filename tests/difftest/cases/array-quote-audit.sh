@@ -9,6 +9,14 @@ declare -a x=($'a"b'); printf 'ansi-declare=<%s>\n' "${x[0]}"
 declare -A chaff=([one]=10 [zero]=5)
 declare -p chaff
 unset chaff
+declare -A chaff
+declare -i chaff
+chaff=([zero]=1+4 [one]=3+7 four)
+declare -p chaff
+declare +i chaff
+chaff[hello world]=flip
+declare -p chaff
+unset chaff
 declare -Ai chaff=([one]=3+7 [zero]=1+4)
 declare -p chaff
 x=(prefix$'a\\b'suffix); printf 'ansi-mixed-backslash=<%s>\n' "${x[0]}"

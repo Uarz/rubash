@@ -43,6 +43,19 @@ fn integer_associative_declaration_evaluates_values_without_losing_keys() {
 }
 
 #[test]
+fn associative_partial_assignment_keeps_values_when_integer_attribute_is_removed() {
+    let output = Command::new(env!("CARGO_BIN_EXE_rubash"))
+        .arg("-c")
+        .arg(r#"declare -A chaff; declare -i chaff; chaff=([zero]=1+4 [one]=3+7 four); declare -p chaff; declare +i chaff; chaff[hello world]=flip; declare -p chaff"#)
+        .output()
+        .expect("run issue 77 partial assignment");
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"declare -Ai chaff=([one]=\"10\" [zero]=\"5\" )\ndeclare -A chaff=([\"hello world\"]=\"flip\" [one]=\"10\" [zero]=\"5\" )\n");
+    assert!(String::from_utf8_lossy(&output.stderr)
+        .contains("chaff: four: must use subscript when assigning associative array"));
+}
+
+#[test]
 fn plain_declare_lists_name_value_pairs() {
     let output = Command::new(env!("CARGO_BIN_EXE_rubash"))
         .arg("-c")
