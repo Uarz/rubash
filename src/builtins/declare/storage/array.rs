@@ -63,7 +63,8 @@ pub(in crate::builtins::declare) fn append_array_value(
 
             if let Some((left, rhs)) = unquoted_token.split_once('=') {
                 if let Some(index) = array_assignment_index(left, &entries) {
-                    entries.insert(index, unquote_storage_value(rhs));
+                    let stored = unquote_storage_value(rhs);
+                    entries.insert(index, stored);
                     next_index = index + 1;
                     continue;
                 }

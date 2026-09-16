@@ -50,6 +50,15 @@ impl Executor {
                 self.diagnostic_prefix(),
                 label
             );
+        } else if let Some(token) = self.undefined_var_operand_token(expression) {
+            // GNU expr.c: when $var expands to empty (undefined variable),
+            // the arithmetic evaluator reports "operand expected" with the
+            // original $var token (e.g. `jv += $iv` -> token "$iv").
+            eprintln!(
+                "{}{}: {expression}: arithmetic syntax error: operand expected (error token is \"{token}\")",
+                self.diagnostic_prefix(),
+                label
+            );
         } else if let Some(message) = crate::executor::arithmetic::arithmetic_command_error_message(
             expression,
             trailing_space,
@@ -58,6 +67,46 @@ impl Executor {
         }
         use std::io::Write;
         let _ = std::io::stderr().flush();
+    }
+
+    /// Detect a $var reference in the expression that would expand to empty
+    /// because the variable is undefined (not in env_vars or shell variables).
+    /// Returns the $var token as it appears in the expression.
+    fn undefined_var_operand_token(&self, expression: &str) -> Option<String> {
+        let bytes = expression.as_bytes();
+        let mut index = 0;
+        while index < bytes.len() {
+            if bytes[index] == 0x24 && index + 1 < bytes.len() {
+                let start = index;
+                index += 1;
+                let braced = bytes[index] == 0x7b;
+                if braced { index += 1; }
+                let name_start = index;
+                while index < bytes.len()
+                    && (bytes[index].is_ascii_alphanumeric() || bytes[index] == 0x5f)
+                {
+                    index += 1;
+                }
+                if index > name_start {
+                    let name = &expression[name_start..index];
+                    if braced && index < bytes.len() && bytes[index] == 0x7d {
+                        index += 1;
+                    }
+                    let end = index;
+                    let defined = self
+                        .dynamic_parameter_value(name)
+                        .is_some()
+                        || self.shell_variable_value(name).is_some()
+                        || std::env::var(name).is_ok();
+                    if !defined {
+                        return Some(expression[start..end].to_string());
+                    }
+                }
+            } else {
+                index += 1;
+            }
+        }
+        None
     }
 
     pub(in crate::executor) fn report_arithmetic_error(&self, expression: &str) {
@@ -99,6 +148,21 @@ impl Executor {
     }
 
     pub(in crate::executor) fn report_let_arithmetic_error(&self, expression: &str) {
+        // GNU let.def: let_builtin passes EXP_EXPANDED to evalexp, so the
+        // arithmetic evaluator does NOT expand $var. In GNU expr.c,
+        // legal_variable_starter(c) is ISALPHA(c) || (c == '_'), so '$' is
+        // not a valid operand character. When the evaluator sees '$var'
+        // after an operator, it reports "operand expected" with the '$var'
+        // token. Detect ANY $var reference (defined or not) for let context.
+        if let Some(token) = dollar_var_operand_token(expression) {
+            eprintln!(
+                "{}let: {expression}: arithmetic syntax error: operand expected (error token is \"{token}\")",
+                self.diagnostic_prefix()
+            );
+            use std::io::Write;
+            let _ = std::io::stderr().flush();
+            return;
+        }
         self.report_arithmetic_error_with_label("let", expression, true);
     }
 
@@ -120,15 +184,10 @@ impl Executor {
             .or_else(|| cmd.words.get(1).map(String::as_str))
             .unwrap_or_default();
         // GNU execute_cmd.c:3940-3945: if `set -x` is on, print `(( expr ))`
-        // before evaluating the arithmetic command.  Use the raw expression
-        // to preserve original whitespace on BOTH sides (GNU passes the
-        // verbatim between-parens text to xtrace_print_arith_cmd: `(( n ))`
-        // traces as `+ ((  n  ))`).
-        if let Some(raw) = raw_expression {
-            self.xtrace_print_arith_cmd_raw(raw);
-        } else {
-            self.xtrace_print_arith_cmd(expression);
-        }
+        // before evaluating the arithmetic command.  Use the raw expression to
+        // preserve original whitespace.
+        let xtrace_expr = raw_expression.unwrap_or(expression);
+        self.xtrace_print_arith_cmd(xtrace_expr);
         match self.eval_arithmetic_command_value(expression) {
             Some(0) => 1,
             Some(_) => 0,
@@ -186,7 +245,7 @@ impl Executor {
                 index += 1;
             }
             let expression = arithmetic_expression_arg(&expression);
-            value = self.eval_arithmetic_command_value(&expression);
+            value = self.eval_arithmetic_command_value_no_expand(&expression);
             if value.is_none() {
                 self.report_let_arithmetic_error(&expression);
                 return 1;
@@ -530,6 +589,47 @@ impl Executor {
             .and_then(|line| line.parse::<usize>().ok())
             == Some(current_line)
     }
+}
+
+/// Detect ANY $var reference in the expression (defined or undefined).
+/// Used for let context where GNU expr.c does not expand $var and treats
+/// '$' as an invalid operand character, reporting "operand expected".
+fn dollar_var_operand_token(expression: &str) -> Option<String> {
+    let bytes = expression.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == 0x24 && index + 1 < bytes.len() {
+            let start = index;
+            index += 1;
+            let braced = bytes[index] == 0x7b;
+            if braced { index += 1; }
+            let name_start = index;
+            while index < bytes.len()
+                && (bytes[index].is_ascii_alphanumeric() || bytes[index] == 0x5f)
+            {
+                index += 1;
+            }
+            if index > name_start {
+                if braced && index < bytes.len() && bytes[index] == 0x7d {
+                    index += 1;
+                }
+                // GNU expr.c::readtok skips trailing whitespace after the
+                // token, and lasttp points at the start of the token. The
+                // error token includes trailing whitespace (e.g. "$iv " for
+                // `jv += $iv `). Include trailing spaces/tabs.
+                while index < bytes.len()
+                    && (bytes[index] == b' ' || bytes[index] == b'\t')
+                {
+                    index += 1;
+                }
+                let end = index;
+                return Some(expression[start..end].to_string());
+            }
+        } else {
+            index += 1;
+        }
+    }
+    None
 }
 
 fn alias_value_starts_reserved_word(value: &str) -> bool {

@@ -121,6 +121,7 @@ impl ConditionalArithParser<'_> {
             resolving,
             random_state: self.random_state,
             error_category: None,
+            no_expand: false,
         };
         let value = parser.parse_comma()?;
         parser.skip_ws();

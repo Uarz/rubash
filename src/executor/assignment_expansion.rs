@@ -144,7 +144,7 @@ impl Executor {
     }
 
     fn expand_assignment_value_inner(&mut self, value: &str) -> String {
-        // The verbatim single-element fast path is only for storage-shaped
+                // The verbatim single-element fast path is only for storage-shaped
         // values without expansions: a compound value containing a
         // parameter expansion (e.g. (${!xx})) must reach the compound
         // expander below or the expansion text lands in the array as a
@@ -286,13 +286,13 @@ impl Executor {
             }
         }
         self.apply_parameter_assignment_expansions_in_word(value);
-        if let Some(expanded) = self.expand_compound_positional_at_assignment(value, quoted) {
-            if compound_assignment {
+                if let Some(expanded) = self.expand_compound_positional_at_assignment(value, quoted) {
+                        if compound_assignment {
                 return format!("{COMPOUND_ASSIGNMENT_MARKER}{expanded}");
             }
             return expanded;
         }
-        if let Some(expanded) = self.expand_unquoted_parameter_compound_assignment(value) {
+                if let Some(expanded) = self.expand_unquoted_parameter_compound_assignment(value) {
             if compound_assignment {
                 return format!("{COMPOUND_ASSIGNMENT_MARKER}{expanded}");
             }
@@ -393,7 +393,20 @@ impl Executor {
             } else {
                 expanded_value.clone()
             };
-            unescape_remaining_shell_escapes(&stripped)
+            // GNU parse.y:5368-5397 read_token_word: a backslash outside any
+            // quote removes itself and keeps the next char literal. In a
+            // compound assignment, the backslash is part of the element
+            // token structure and must survive for split_storage_words to
+            // recognize it (unicode1.sub [0x0020]=\ stores a space, not an
+            // empty element). unescape_remaining_shell_escapes would strip
+            // the backslash from `\ `, turning it into a bare space that
+            // the storage tokenizer treats as a field separator.
+            let unescaped = if compound_paren_value {
+                stripped
+            } else {
+                unescape_remaining_shell_escapes(&stripped)
+            };
+            unescaped
                 .replace(DATA_SINGLE_QUOTE, "'")
                 .replace(DATA_DOUBLE_QUOTE, "\"")
         };

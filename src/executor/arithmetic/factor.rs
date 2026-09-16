@@ -148,6 +148,9 @@ impl ConditionalArithParser<'_> {
     }
 
     pub(super) fn parse_dollar_variable(&mut self) -> Option<i128> {
+        if self.no_expand {
+            return None;
+        }
         self.pos += 1;
         if self.consume("{") {
             let start = self.pos;

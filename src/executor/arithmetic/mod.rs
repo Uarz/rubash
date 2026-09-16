@@ -150,14 +150,25 @@ impl Executor {
     }
 
     pub(crate) fn eval_arithmetic_command_value(&mut self, expression: &str) -> Option<i128> {
+        self.eval_arithmetic_command_value_with_flags(expression, true)
+    }
+
+    pub(crate) fn eval_arithmetic_command_value_no_expand(&mut self, expression: &str) -> Option<i128> {
+        self.eval_arithmetic_command_value_with_flags(expression, false)
+    }
+
+    fn eval_arithmetic_command_value_with_flags(&mut self, expression: &str, expand: bool) -> Option<i128> {
         self.arithmetic_last_error_category.set(None);
         // Associative subscripts are expanded first, in their own pass, and
         // replaced by an opaque literal (see expand_arithmetic_assoc_subscripts)
         // so the ordinary expansion below cannot expand them a second time and
         // the parser stores the key verbatim.
         let with_assoc_keys = self.expand_arithmetic_assoc_subscripts(expression);
-        let expression =
-            normalize_arithmetic_quotes(&self.expand_arithmetic_expression_mut(&with_assoc_keys));
+        let expression = if expand {
+            normalize_arithmetic_quotes(&self.expand_arithmetic_expression_mut(&with_assoc_keys))
+        } else {
+            normalize_arithmetic_quotes(&with_assoc_keys)
+        };
         if crate::builtins::set::shell_option_enabled(&self.env_vars, "nounset") {
             if let Some(name) = arithmetic_unbound_variable(&expression, &self.env_vars) {
                 self.arithmetic_nounset_error.set(true);
@@ -183,10 +194,11 @@ impl Executor {
         }
         // Save a snapshot of variable values before evaluation to detect changes.
         ARITH_WRITES.with(|log| log.borrow_mut().clear());
-        let (value, category) = eval_mutable_arith_value_with_random(
+        let (value, category) = eval_mutable_arith_value_with_random_flags(
             &expression,
             &mut self.env_vars,
             Some(&self.random_state),
+            !expand,
         );
         self.arithmetic_last_error_category.set(category);
         self.report_arithmetic_readonly_error();
@@ -223,10 +235,11 @@ impl Executor {
         }
         // Save a snapshot to detect variable changes from arithmetic side effects
         ARITH_WRITES.with(|log| log.borrow_mut().clear());
-        let (value, category) = eval_mutable_arith_value_with_random(
+        let (value, category) = eval_mutable_arith_value_with_random_flags(
             &expression,
             &mut self.env_vars,
             Some(&self.random_state),
+            false,
         );
         self.arithmetic_last_error_category.set(category);
         self.report_arithmetic_readonly_error();
@@ -451,7 +464,7 @@ pub(crate) fn arithmetic_expansion_is_fatal(expression: &str) -> bool {
 
 pub(crate) fn arithmetic_error_category(expression: &str) -> Option<ArithmeticErrorCategory> {
     let mut env_vars = HashMap::new();
-    let (_, category) = eval_mutable_arith_result(expression, &mut env_vars, None);
+    let (_, category) = eval_mutable_arith_result(expression, &mut env_vars, None, false);
     category
 }
 
@@ -480,6 +493,7 @@ pub(in crate::executor) fn trailing_input_token(expression: &str) -> Option<Stri
         resolving: Vec::new(),
         random_state: None,
         error_category: None,
+        no_expand: false,
     };
     let _ = parser.parse_comma();
     parser.skip_ws();
@@ -529,7 +543,7 @@ pub(crate) fn eval_conditional_arith_value_categorized(
     env_vars: &HashMap<String, String>,
 ) -> (Option<i128>, Option<ArithmeticErrorCategory>) {
     let mut env_vars = env_vars.clone();
-    eval_mutable_arith_result(value, &mut env_vars, None)
+    eval_mutable_arith_result(value, &mut env_vars, None, false)
 }
 
 pub(super) fn arithmetic_unbound_variable(
@@ -1192,7 +1206,41 @@ fn arithmetic_error_message_ctx(
         ));
     }
 
+    // GNU expr.c: unbalanced ( reports missing ) with the last token
+    // as the error token (e.g. 7 + (43 * 6 -> token 6).
+    if let Some(token) = missing_paren_token(expression) {
+        return Some(format!(
+            "{expression}: missing `)' (error token is \"{token}\")"
+        ));
+    }
+
     None
+}
+
+
+/// GNU expr.c: a sub-expression with an unbalanced `(` reports "missing `)'"
+/// with the last token as the error token (e.g. `7 + (43 * 6` -> token "6").
+fn missing_paren_token(expression: &str) -> Option<String> {
+    let mut depth: i32 = 0;
+    for ch in expression.chars() {
+        if ch == '(' {
+            depth += 1;
+        } else if ch == ')' {
+            depth -= 1;
+        }
+    }
+    if depth <= 0 {
+        return None;
+    }
+    // GNU expr.c: lasttp points to the start of the last token read.
+    // For an unbalanced (, the parser has consumed the last token and
+    // expects ), so the error token is the last token in the expression.
+    let trimmed = expression.trim_end();
+    if let Some(space_pos) = trimmed.rfind(char::is_whitespace) {
+        Some(trimmed[space_pos..].trim().to_string())
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 fn invalid_octal_literal(expression: &str) -> Option<String> {
@@ -1379,6 +1427,15 @@ pub(super) fn eval_mutable_arith_value_with_random(
     env_vars: &mut HashMap<String, String>,
     random_state: Option<&Cell<u32>>,
 ) -> (Option<i128>, Option<ArithmeticErrorCategory>) {
+    eval_mutable_arith_value_with_random_flags(value, env_vars, random_state, false)
+}
+
+pub(super) fn eval_mutable_arith_value_with_random_flags(
+    value: &str,
+    env_vars: &mut HashMap<String, String>,
+    random_state: Option<&Cell<u32>>,
+    no_expand: bool,
+) -> (Option<i128>, Option<ArithmeticErrorCategory>) {
     // GNU Bash's subexpr() treats an empty arithmetic expression as zero.
     // This matters for expansion and variable contexts, where an empty
     // quoted operand is valid rather than a parser failure. Lexer quote
@@ -1387,13 +1444,14 @@ pub(super) fn eval_mutable_arith_value_with_random(
     if normalized.trim().is_empty() {
         return (Some(0), None);
     }
-    eval_mutable_arith_result(value, env_vars, random_state)
+    eval_mutable_arith_result(value, env_vars, random_state, no_expand)
 }
 
 fn eval_mutable_arith_result(
     value: &str,
     env_vars: &mut HashMap<String, String>,
     random_state: Option<&Cell<u32>>,
+    no_expand: bool,
 ) -> (Option<i128>, Option<ArithmeticErrorCategory>) {
     let normalized = normalize_arithmetic_quotes(value);
     if normalized.trim().is_empty() {
@@ -1406,6 +1464,7 @@ fn eval_mutable_arith_result(
         resolving: Vec::new(),
         random_state,
         error_category: None,
+        no_expand,
     };
     let value = parser.parse_comma();
     parser.skip_ws();
