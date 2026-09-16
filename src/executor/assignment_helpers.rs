@@ -611,37 +611,39 @@ pub(in crate::executor) fn unquote_storage_value(value: &str) -> String {
         // those values. The quoted paths above keep the full
         // restore_quote_markers because there the C0 bytes are
         // unambiguously walker markers.
+        //
+        // GNU parse.y:5368-5397 read_token_word: a backslash outside any
+        // quote removes itself and keeps the next char literal. Raw-byte
+        // marker pairs (U+E000 + U+E0xx) must be preserved through storage
+        // and retrieval so that carrier bytes survive the expansion path
+        // (unicode1.sub nameref + assoc: EChar len=0, %q=''). The markers
+        // are decoded at the final output stage (echo/printf) by
+        // shift_echo_builtins.rs.
+        let sentinel = crate::executor::substitution_metadata::RAW_BYTE_MARKER_ESCAPE;
+        let marker_first = crate::executor::substitution_metadata::RAW_BYTE_MARKER_FIRST;
+        let marker_last = crate::executor::substitution_metadata::RAW_BYTE_MARKER_LAST;
         let mut decoded = String::new();
         let mut chars = value.chars().peekable();
         let mut escaped = false;
         while let Some(ch) = chars.next() {
             if escaped {
-                // GNU expand_word_internal quote removal: backslash outside
-                // any quote removes itself and keeps the next char literal.
                 decoded.push(ch);
                 escaped = false;
                 continue;
             }
             if ch == '\\' {
-                // GNU parse.y:5368-5397 read_token_word: backslash outside
-                // any quote removes itself; the next char is kept literal.
                 escaped = true;
                 continue;
             }
-            if ch as u32 == crate::executor::substitution_metadata::RAW_BYTE_MARKER_ESCAPE {
+            if ch as u32 == sentinel {
                 if let Some(&next) = chars.peek() {
-                    if (crate::executor::substitution_metadata::RAW_BYTE_MARKER_FIRST
-                        ..=crate::executor::substitution_metadata::RAW_BYTE_MARKER_LAST)
-                        .contains(&(next as u32))
-                    {
+                    if (marker_first..=marker_last).contains(&(next as u32)) {
+                        // Preserve raw-byte marker pair for the expansion
+                        // path to decode at output time.
+                        decoded.push(ch);
+                        decoded.push(next);
                         chars.next();
-                        if let Some(byte) = char::from_u32(
-                            next as u32
-                                - crate::executor::substitution_metadata::RAW_BYTE_MARKER_FIRST,
-                        ) {
-                            decoded.push(byte);
-                            continue;
-                        }
+                        continue;
                     }
                 }
             }
