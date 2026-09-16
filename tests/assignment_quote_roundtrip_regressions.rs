@@ -111,3 +111,29 @@ fn array_element_quote_storage_roundtrip() {
         b"a\"b".to_vec()
     );
 }
+
+#[test]
+fn ansi_c_array_elements_preserve_literal_quotes_and_backslashes() {
+    assert_eq!(
+        rubash_raw(r#"x=($'a"b' $'a\'b' $'a\\b'); printf '<%s>\n' "${x[@]}""#),
+        b"<a\"b>\n<a'b>\n<a\\b>\n"
+    );
+}
+
+#[test]
+fn ansi_c_array_elements_keep_quoted_spaces_and_concatenation() {
+    assert_eq!(
+        rubash_raw(r#"x=(prefix$'a"b c'suffix); printf '%s:<%s>\n' "${#x[@]}" "${x[0]}""#),
+        b"1:<prefixa\"b csuffix>\n"
+    );
+}
+
+#[test]
+fn ansi_c_array_quote_roundtrip_survives_declare_eval() {
+    assert_eq!(
+        rubash_raw(
+            r#"x=([2]=$'a"b'); saved=$(declare -p x); unset x; eval "$saved"; printf '%s' "${x[2]}""#
+        ),
+        b"a\"b"
+    );
+}

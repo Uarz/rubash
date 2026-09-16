@@ -19,6 +19,12 @@ jobs:
         run: |
           cargo build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --lib -- --test-threads=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --test assignment_quote_roundtrip_regressions
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --test cli_tests declare_output
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364
         with:
           distribution: Ubuntu-24.04
@@ -51,12 +57,19 @@ jobs:
           LC_ALL=C __RUBASH_NO_UPSTREAM_SCRIPTS=1 timeout -k 5 30 target/debug/rubash.exe "$script" > "$out/rubash.out" 2> "$out/rubash.err"
           echo $? > "$out/rubash.rc"
           diff -u "$out/gnu.out" "$out/rubash.out" > "$out/stdout.diff"
-          exit 0
+          stdout_status=$?
+          diff -u "$out/gnu.err" "$out/rubash.err" > "$out/stderr.diff"
+          stderr_status=$?
+          diff -u "$out/gnu.rc" "$out/rubash.rc" > "$out/status.diff"
+          status_status=$?
+          test "$stdout_status$stderr_status$status_status" = 000
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: array-focused-${{ github.sha }}
           path: target/issue-suites/results/array-audit/
       - name: Record the full bounded ledger
+        if: always()
         shell: wsl-bash {0}
         run: |
           unset BASH_ENV WINUXSH_ROOT

@@ -165,9 +165,8 @@ fn field_split_with_raw_byte_markers(value: &str, ifs: &str) -> Vec<String> {
     // Build the IFS character list: each entry is a byte sequence for one
     // IFS character (1 byte for ASCII, 1-4 bytes for UTF-8 multibyte).
     let ifs_chars = split_into_chars(&ifs_bytes);
-    let ifs_is_whitespace = |bytes: &[u8]| {
-        bytes.len() == 1 && matches!(bytes[0], b' ' | b'\t' | b'\n')
-    };
+    let ifs_is_whitespace =
+        |bytes: &[u8]| bytes.len() == 1 && matches!(bytes[0], b' ' | b'\t' | b'\n');
 
     let mut fields: Vec<Vec<u8>> = Vec::new();
     let mut current_bytes: Vec<u8> = Vec::new();
@@ -632,6 +631,18 @@ pub(super) fn append_array_value(
         // a2=(-iname 'abc -iname 'def) stores (-iname, "abc -iname def")).
         let split_needed = token_has_unquoted_whitespace(&token);
         let partially_quoted = !quoted_token && (token.contains('\'') || token.contains('"'));
+        let token = if partially_quoted
+            && !(token.starts_with("$'") && token.ends_with('\''))
+            && !token.starts_with('\x1d')
+        {
+            // GNU arrayfunc.c:557 expand_compound_array_assignment removes
+            // syntax before the stored data quotes are materialized.
+            remove_shell_quotes(&token)
+                .replace('\x17', "'")
+                .replace('\x18', "\"")
+        } else {
+            token
+        };
         let token = unquote_storage_value(&token);
         if let Some(expanded_array) = token.strip_prefix('\x1d') {
             for value in field_split_values_with_ifs(expanded_array, ifs) {
@@ -654,13 +665,6 @@ pub(super) fn append_array_value(
             }
             continue;
         }
-        let token = if partially_quoted {
-            // A quote pair inside the token (not wrapping it) is still an
-            // OPERATOR pair: `'a b'c` stores `a bc`, with the quotes gone.
-            remove_shell_quotes(&token)
-        } else {
-            token
-        };
         if scalar_append && !entries.is_empty() {
             let current = entries.get(&0).cloned().unwrap_or_default();
             let appended = if integer {

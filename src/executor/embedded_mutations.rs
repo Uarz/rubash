@@ -660,7 +660,19 @@ impl Executor {
                     }
                     if closed {
                         let decoded = crate::lexer::decode_ansi_c_quoted(&quoted);
-                        if alternate {
+                        if self.inside_assignment_rhs.get()
+                            && word.starts_with('(')
+                            && word.ends_with(')')
+                            && !alternate
+                        {
+                            // GNU parse.y:5566-5572 read_token_word re-quotes
+                            // ANSI-C decoded data before compound-word expansion.
+                            // Preserve that word boundary until array storage
+                            // performs its final quote removal.
+                            let decoded =
+                                decoded.replace('\u{E102}', crate::lexer::ANSI_C_DQUOTE_MARKER_STR);
+                            output.push_str(&quote_array_value(&decoded));
+                        } else if alternate {
                             for ch in decoded.chars() {
                                 if matches!(ch, ' ' | '\t' | '\n') {
                                     output.push('\x1c');
@@ -943,7 +955,11 @@ impl Executor {
         // `cat` command, not the line of the outer `$(`).
         let has_heredoc = source.contains("<<");
         let leading_newlines = source.chars().take_while(|ch| *ch == '\n').count();
-        let source = if has_heredoc { source.trim() } else { source.trim() };
+        let source = if has_heredoc {
+            source.trim()
+        } else {
+            source.trim()
+        };
         let words = self.expand_aliases(&split_shell_words(source));
         // Store leading newlines for the heredoc path to adjust warning
         // line numbers: when `$(` is at end of line, the comsub body starts

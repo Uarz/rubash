@@ -1,6 +1,48 @@
 use std::process::Command;
 
 #[test]
+fn integer_attribute_without_assignment_preserves_associative_elements() {
+    let output = Command::new(env!("CARGO_BIN_EXE_rubash"))
+        .arg("-c")
+        .arg(r#"declare -A chaff=([one]=10 [zero]=5); declare -i chaff; declare -p chaff"#)
+        .output()
+        .expect("run associative attribute probe");
+    assert!(output.status.success());
+    assert_eq!(
+        output.stdout,
+        b"declare -Ai chaff=([one]=\"10\" [zero]=\"5\" )\n"
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn integer_attribute_without_assignment_does_not_evaluate_existing_text() {
+    let output = Command::new(env!("CARGO_BIN_EXE_rubash"))
+        .arg("-c")
+        .arg(r#"x='1+2'; declare -i x; printf '<%s>\n' "$x"; x=1+2; printf '<%s>\n' "$x""#)
+        .output()
+        .expect("run scalar attribute probe");
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"<1+2>\n<3>\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn integer_associative_declaration_evaluates_values_without_losing_keys() {
+    let output = Command::new(env!("CARGO_BIN_EXE_rubash"))
+        .arg("-c")
+        .arg(r#"declare -Ai chaff=([one]=3+7 [zero]=1+4); declare -p chaff"#)
+        .output()
+        .expect("run integer associative declaration");
+    assert!(output.status.success());
+    assert_eq!(
+        output.stdout,
+        b"declare -Ai chaff=([one]=\"10\" [zero]=\"5\" )\n"
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn plain_declare_lists_name_value_pairs() {
     let output = Command::new(env!("CARGO_BIN_EXE_rubash"))
         .arg("-c")

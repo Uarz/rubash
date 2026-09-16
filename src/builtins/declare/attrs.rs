@@ -4,9 +4,6 @@ use std::io::{self, Write};
 
 use super::diagnostic::diagnostic_prefix;
 use super::marks::{mark_array, mark_assoc, mark_exported, mark_typed, marked_vars, unmark_typed};
-use super::storage::{
-    eval_arith_value, format_indexed_array_storage, indexed_array_entries, parse_array_words,
-};
 use super::{
     ARRAY_VARS, ASSOC_VARS, CAPCASE_VARS, EXECUTION_FAILURE, EXPORTED_VARS, INTEGER_VARS,
     LOWERCASE_VARS, NAMEREF_VARS, READONLY_VARS, UPPERCASE_VARS,
@@ -204,47 +201,14 @@ where
         variables.entry(name.to_string()).or_default();
     }
     if integer {
-        for (name_index, name) in names.iter().enumerate() {
+        for name in names {
             let name = name.split_once('=').map(|(name, _)| name).unwrap_or(name);
             let name = name.strip_suffix('+').unwrap_or(name);
             mark_typed(variables, INTEGER_VARS, name);
-            // GNU declare.def:667-671 applies att_integer without touching the
-            // stored value; for a nameref the stored value is a variable NAME,
-            // so evaluating it would destroy the reference
-            // (nameref23.sub:48 `declare -ni b` must keep b's cell "a[0]").
-            // The empty cell created by array marking above is NOT a value:
-            // an attribute-only operand (no name=value) must stay empty so
-            // `declare -ai c` lists `declare -ai c` without a phantom
-            // ([0]="0"). An explicit `name=` still evaluates ([0]="0"), and
-            // pre-existing non-empty values keep evaluating.
-            let has_assignment = attr_names_owned[name_index].contains('=');
-            let marking_cell_empty = variables.get(name).map(String::is_empty).unwrap_or(true);
-            if has_assignment || !marking_cell_empty {
-                if !marked_vars(variables, NAMEREF_VARS).contains(name) {
-                    if let Some(value) = variables.get(name).cloned() {
-                        let value = if value.starts_with('\x1d') {
-                            let mut entries = indexed_array_entries(&value);
-                            for element in entries.values_mut() {
-                                *element = eval_arith_value(element).to_string();
-                            }
-                            format_indexed_array_storage(entries)
-                        } else if value.starts_with('(') && value.ends_with(')') {
-                            format!(
-                                "({})",
-                                parse_array_words(&value)
-                                    .into_iter()
-                                    .map(|value| eval_arith_value(&value).to_string())
-                                    .collect::<Vec<_>>()
-                                    .join(" ")
-                            )
-                        } else {
-                            eval_arith_value(&value).to_string()
-                        };
-                        variables.insert(name.to_string(), value.clone());
-                        env::set_var(name, value);
-                    }
-                }
-            }
+            // GNU declare.def:988-1028 sets attributes, then binds only
+            // explicit assignments. assign_declare_names already evaluates
+            // their values. Re-evaluating serialized storage here destroys
+            // associative keys and changes attribute-only declarations.
         }
     }
     if uppercase || lowercase || capcase {

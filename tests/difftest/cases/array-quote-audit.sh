@@ -8,6 +8,16 @@ x=([2]=$'a"b'); printf 'ansi-index=<%s>\n' "${x[2]}"
 declare -a x=($'a"b'); printf 'ansi-declare=<%s>\n' "${x[0]}"
 declare -A chaff=([one]=10 [zero]=5)
 declare -p chaff
+unset chaff
+declare -Ai chaff=([one]=3+7 [zero]=1+4)
+declare -p chaff
+x=(prefix$'a\\b'suffix); printf 'ansi-mixed-backslash=<%s>\n' "${x[0]}"
+x=($'a\'b c'); printf 'ansi-single-space=<%s> count=%s\n' "${x[0]}" "${#x[@]}"
+x=($'a$HOME`echo BAD`'); printf 'ansi-literal-expansion=<%s>\n' "${x[0]}"
+x=($''); printf 'ansi-empty=<%s> count=%s\n' "${x[0]}" "${#x[@]}"
+x=($'a\tb'); printf 'ansi-tab=<%s> count=%s\n' "${x[0]}" "${#x[@]}"
+x=($'*.rs'); printf 'ansi-glob=<%s>\n' "${x[0]}"
+x=($'\x11\x14\x17\x1a\x1f'); printf 'ansi-controls=%q\n' "${x[0]}"
 declare -i chaff
 declare -p chaff
 unset chaff
