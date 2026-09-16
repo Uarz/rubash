@@ -141,7 +141,13 @@ pub(in crate::executor) fn quote_array_value(value: &str) -> String {
         "\"{}\"",
         value
             .replace('\\', "\\\\")
-            .replace('"', "\\\\\"")
+            // shquote.c sh_double_quote escapes a bare `"` with a SINGLE
+            // backslash (`\"`). The previous `\\\"` here emitted `\\\"`, so
+            // the storage round-trip (unquote_storage_value decodes `\\\\` to
+            // `\\` and then keeps the bare `"`) surfaced a spurious backslash:
+            // `x=("q\"q")` stored q"q but `${x[0]}` read back q\\"q
+            // (niubash #103 side finding).
+            .replace('"', "\\\"")
             .replace('$', "\\$")
             .replace('\u{60}', "\\`")
     )
@@ -183,7 +189,8 @@ pub(in crate::executor) fn quote_assoc_display_key(key: &str) -> String {
         return format!(
             "\"{}\"",
             key.replace('\\', "\\\\")
-                .replace('"', "\\\\\"")
+                // sh_double_quote: single-backslash escape (see quote_array_value).
+                .replace('"', "\\\"")
                 .replace('$', "\\$")
                 .replace('\u{60}', "\\`")
         );

@@ -75,3 +75,39 @@ fn escaped_double_quote_survives_expansion_and_heredoc() {
     assert_eq!(rubash("x=\"q\\\"q\"\necho \"[${x:-none}]\""), "[q\"q]\n");
     assert_eq!(rubash("x=\"q\\\"q\"\ncat <<EOF\n[$x]\nEOF"), "[q\"q]\n");
 }
+
+// niubash #103 side finding: compound array elements ran quote removal
+// twice -- escape decoding (`\"` -> data `"`) followed by a second
+// remove_shell_quotes pass that re-parsed the decoded DATA quote as an
+// operator pair and stripped it. GNU bash 5.3.0(1) stores the literal
+// quote byte (0x22) for all three element quote forms.
+#[test]
+fn escaped_quote_in_unquoted_array_element_is_literal() {
+    assert_eq!(
+        rubash_raw("x=(q\\\"q); printf '%s' \"${x[0]}\""),
+        b"q\"q".to_vec()
+    );
+}
+
+#[test]
+fn escaped_quote_in_quoted_array_element_is_literal() {
+    assert_eq!(
+        rubash_raw("x=(\"q\\\"q\"); printf '%s' \"${x[0]}\""),
+        b"q\"q".to_vec()
+    );
+}
+
+// The storage render (quote_array_value -> sh_double_quote) must escape a
+// bare `"` with a SINGLE backslash; the previous `\\"` doubled it and the
+// element re-decode surfaced a spurious backslash byte.
+#[test]
+fn array_element_quote_storage_roundtrip() {
+    assert_eq!(
+        rubash_raw("x=('a\"b'); printf '%s' \"${x[0]}\""),
+        b"a\"b".to_vec()
+    );
+    assert_eq!(
+        rubash_raw("x=(\"a\\\"b\"); printf '%s' \"${x[0]}\""),
+        b"a\"b".to_vec()
+    );
+}
