@@ -204,6 +204,15 @@ impl Executor {
                 .replace('\x1f', "$")
                 .replace('\x1a', "`")
                 .replace('\x14', "\\")
+                // The escaped-quote carriers must restore too: the lexer
+                // emits \x17 for `\'` and \x18 for `\"` in the source word
+                // (alias_helpers.rs word lexer), and a quoted assignment
+                // reaches this fast path with the carriers still in place.
+                // Missing the \x18 restore leaked the raw CAN byte into
+                // storage: `x="q\"q"` stored q\x18q (niubash issue #103) —
+                // length intact, rc 0, silent corruption on redirect.
+                .replace('\x17', "'")
+                .replace('\x18', "\"")
                 .replace(crate::lexer::ANSI_C_QUOTE_MARKER_STR, "'")
                 .replace(crate::lexer::ANSI_C_DQUOTE_MARKER_STR, "\"");
             // The lexer marks quoted glob metacharacters (*?[!@+) with a
