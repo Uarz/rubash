@@ -9,10 +9,11 @@ mod storage;
 
 pub(super) use mapfile::split_mapfile_input;
 pub(super) use storage::{
-    array_indices, array_value_at, array_values, format_indexed_array_storage,
-    format_indexed_array_values, indexed_array_entries, is_array_storage, is_marked_array_var,
-    normalize_array_expanded_value, parse_array_integer_subscript, parse_array_numeric_subscript,
-    parse_array_subscript, quote_array_value, resolve_indexed_array_subscript, store_indexed_array,
+    ansic_quote, ansic_shouldquote, array_indices, array_value_at, array_values,
+    format_indexed_array_storage, format_indexed_array_values, indexed_array_entries,
+    is_array_storage, is_marked_array_var, normalize_array_expanded_value,
+    parse_array_integer_subscript, parse_array_numeric_subscript, parse_array_subscript,
+    quote_array_value, resolve_indexed_array_subscript, store_indexed_array,
 };
 
 use std::collections::{BTreeMap, HashMap};
@@ -131,6 +132,174 @@ fn split_mixed_ifs(value: &str, ifs: &str) -> Vec<String> {
     fields
 }
 
+/// IFS splitting when the value or IFS contains raw-byte markers.
+///
+/// GNU `subst.c:1148-1250` (`string_extract_verbatim`) walks the string
+/// byte-by-byte, uses `mbrtowc` to identify multibyte character boundaries,
+/// and checks each complete character against the IFS character list via
+/// `wcschr`. A multibyte character like `€` (U+20AC, bytes E2 82 AC) is
+/// never split even if one of its bytes appears in IFS.
+///
+/// Rubash stores bytes >= 0x80 as U+E000 + U+E0xx marker pairs inside Rust
+/// Strings. This function decodes both sides to raw bytes, walks the value
+/// respecting UTF-8 character boundaries, and re-encodes the result.
+fn field_split_with_raw_byte_markers(value: &str, ifs: &str) -> Vec<String> {
+    use crate::executor::substitution_metadata::{
+        decode_raw_byte_markers, encode_raw_byte_marker, RAW_BYTE_MARKER_ESCAPE,
+    };
+
+    let sentinel = char::from_u32(RAW_BYTE_MARKER_ESCAPE).expect("sentinel is valid");
+
+    // Decode both sides to raw bytes.
+    let value_bytes = if value.contains(sentinel) {
+        decode_raw_byte_markers(value.as_bytes())
+    } else {
+        value.as_bytes().to_vec()
+    };
+    let ifs_bytes = if ifs.contains(sentinel) {
+        decode_raw_byte_markers(ifs.as_bytes())
+    } else {
+        ifs.as_bytes().to_vec()
+    };
+
+    // Build the IFS character list: each entry is a byte sequence for one
+    // IFS character (1 byte for ASCII, 1-4 bytes for UTF-8 multibyte).
+    let ifs_chars = split_into_chars(&ifs_bytes);
+    let ifs_is_whitespace = |bytes: &[u8]| {
+        bytes.len() == 1 && matches!(bytes[0], b' ' | b'\t' | b'\n')
+    };
+
+    let mut fields: Vec<Vec<u8>> = Vec::new();
+    let mut current_bytes: Vec<u8> = Vec::new();
+    let mut index = 0;
+
+    while index < value_bytes.len() {
+        // \x1c protection marker: next byte is literal data, not a separator.
+        if value_bytes[index] == 0x1c {
+            index += 1;
+            if index < value_bytes.len() {
+                current_bytes.push(value_bytes[index]);
+                index += 1;
+            }
+            continue;
+        }
+
+        // Try to parse a UTF-8 character starting here.
+        let char_len = utf8_char_len(&value_bytes[index..]);
+        let char_bytes = &value_bytes[index..index + char_len];
+
+        // Check if this character matches any IFS character.
+        let matched_ifs = ifs_chars.iter().find(|ifs_char| {
+            ifs_char.len() == char_bytes.len() && ifs_char.as_slice() == char_bytes
+        });
+
+        if let Some(matched) = matched_ifs {
+            if ifs_is_whitespace(matched) {
+                // Whitespace IFS: skip consecutive whitespace IFS chars.
+                fields.push(std::mem::take(&mut current_bytes));
+                index += char_len;
+                while index < value_bytes.len() {
+                    let cl = utf8_char_len(&value_bytes[index..]);
+                    let cb = &value_bytes[index..index + cl];
+                    let is_ws_sep = ifs_chars.iter().any(|ic| {
+                        ic.len() == cb.len() && ic.as_slice() == cb && ifs_is_whitespace(ic)
+                    });
+                    if is_ws_sep {
+                        index += cl;
+                    } else {
+                        break;
+                    }
+                }
+                continue;
+            } else {
+                // Non-whitespace IFS: every separator produces a field.
+                fields.push(std::mem::take(&mut current_bytes));
+                index += char_len;
+                continue;
+            }
+        }
+
+        // Not a separator: add this character to the current field.
+        current_bytes.extend_from_slice(char_bytes);
+        index += char_len;
+    }
+
+    fields.push(std::mem::take(&mut current_bytes));
+
+    // Drop trailing empty field from a trailing non-whitespace separator.
+    if fields.last().is_some_and(|f| f.is_empty()) && fields.len() > 1 {
+        fields.pop();
+    }
+
+    // Re-encode byte fields back to Rust Strings with raw-byte markers.
+    fields
+        .into_iter()
+        .map(|bytes| bytes_to_shell_text(&bytes, &sentinel, &encode_raw_byte_marker))
+        .collect()
+}
+
+/// Split a byte sequence into individual characters (UTF-8 aware).
+/// Invalid UTF-8 bytes are treated as single-byte characters.
+fn split_into_chars(bytes: &[u8]) -> Vec<Vec<u8>> {
+    let mut chars = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        let len = utf8_char_len(&bytes[index..]);
+        chars.push(bytes[index..index + len].to_vec());
+        index += len;
+    }
+    chars
+}
+
+/// Return the length (in bytes) of the UTF-8 character starting at the
+/// beginning of `bytes`. Invalid bytes are treated as 1-byte characters.
+fn utf8_char_len(bytes: &[u8]) -> usize {
+    if bytes.is_empty() {
+        return 0;
+    }
+    let first = bytes[0];
+    if first < 0x80 {
+        1
+    } else if first & 0xE0 == 0xC0 {
+        2.min(bytes.len())
+    } else if first & 0xF0 == 0xE0 {
+        3.min(bytes.len())
+    } else if first & 0xF8 == 0xF0 {
+        4.min(bytes.len())
+    } else {
+        1
+    }
+}
+
+/// Re-encode raw bytes as a Rust String, using raw-byte markers for bytes
+/// >= 0x80 so the result is valid UTF-8 and round-trips through the executor.
+fn bytes_to_shell_text(
+    bytes: &[u8],
+    sentinel: &char,
+    encode_raw_byte_marker: &dyn Fn(u8) -> String,
+) -> String {
+    let mut output = String::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        let len = utf8_char_len(&bytes[index..]);
+        let slice = &bytes[index..index + len];
+        if let Ok(text) = std::str::from_utf8(slice) {
+            output.push_str(text);
+        } else {
+            for &byte in slice {
+                if byte < 0x80 {
+                    output.push(char::from(byte));
+                } else {
+                    output.push_str(&encode_raw_byte_marker(byte));
+                }
+            }
+        }
+        index += len;
+    }
+    let _ = sentinel; // suppress unused warning
+    output
+}
+
 pub(super) fn field_split_values_with_ifs(value: &str, ifs: Option<&str>) -> Vec<String> {
     let Some(ifs) = ifs else {
         return split_ifs_whitespace(value, " \t\n");
@@ -143,6 +312,17 @@ pub(super) fn field_split_values_with_ifs(value: &str, ifs: Option<&str>) -> Vec
     // Other Unicode whitespace remains data unless explicitly listed in IFS.
     if ifs == " \t\n" {
         return split_ifs_whitespace(value, ifs);
+    }
+
+    // When the value or IFS contains raw-byte markers (multibyte chars
+    // stored as U+E000 + U+E0xx pairs), char-level `ifs.contains(ch)` would
+    // falsely match the marker sentinel. Decode to bytes and split at the
+    // byte level while respecting UTF-8 character boundaries, matching GNU
+    // subst.c:1210-1240 (mbrtowc + wcschr against the IFS wchar list).
+    let sentinel = char::from_u32(crate::executor::substitution_metadata::RAW_BYTE_MARKER_ESCAPE)
+        .expect("raw-byte sentinel is a valid char");
+    if value.contains(sentinel) || ifs.contains(sentinel) {
+        return field_split_with_raw_byte_markers(value, ifs);
     }
 
     if ifs.chars().all(is_ifs_whitespace) {
@@ -452,24 +632,6 @@ pub(super) fn append_array_value(
         // a2=(-iname 'abc -iname 'def) stores (-iname, "abc -iname def")).
         let split_needed = token_has_unquoted_whitespace(&token);
         let partially_quoted = !quoted_token && (token.contains('\'') || token.contains('"'));
-        // GNU apply_compound_array_list runs quote removal ONCE over the raw
-        // element word: operator quote pairs are stripped and backslash
-        // escapes are decoded in the same pass. remove_shell_quotes is that
-        // pass -- it leaves a backslash-escaped quote as the \x17/\x18 data
-        // carrier, restored below before the unquote fast paths run. The
-        // previous order (escape-decode via unquote_storage_value, then
-        // remove_shell_quotes on the result) re-parsed a decoded DATA quote
-        // as an operator pair: `x=(q\"q)` stored q\"q as q"q and then
-        // stripped it to qq, and `$'a"b'` lost the ANSI-C quote the same
-        // way (niubash #103 side finding; GNU stores q"b / a"b).
-        let token = if partially_quoted
-            && !(token.starts_with("$'") && token.ends_with('\''))
-            && !token.starts_with('\x1d')
-        {
-            restore_quote_carriers(&remove_shell_quotes(&token))
-        } else {
-            token
-        };
         let token = unquote_storage_value(&token);
         if let Some(expanded_array) = token.strip_prefix('\x1d') {
             for value in field_split_values_with_ifs(expanded_array, ifs) {
@@ -492,6 +654,13 @@ pub(super) fn append_array_value(
             }
             continue;
         }
+        let token = if partially_quoted {
+            // A quote pair inside the token (not wrapping it) is still an
+            // OPERATOR pair: `'a b'c` stores `a bc`, with the quotes gone.
+            remove_shell_quotes(&token)
+        } else {
+            token
+        };
         if scalar_append && !entries.is_empty() {
             let current = entries.get(&0).cloned().unwrap_or_default();
             let appended = if integer {
@@ -561,22 +730,6 @@ fn token_has_unquoted_whitespace(token: &str) -> bool {
         }
     }
     false
-}
-
-/// Restore the walker's quote-carrier markers emitted by
-/// `remove_shell_quotes` (\x1f `$`, \x1a backtick, \x14 backslash, \x17
-/// `'`, \x18 `"`, plus the ANSI-C PUA tags) into their real data
-/// characters, so a compound element stores byte-compatible data
-/// (assignment_expansion hoist/restore contract).
-fn restore_quote_carriers(value: &str) -> String {
-    value
-        .replace('\x1f', "$")
-        .replace('\x1a', "`")
-        .replace('\x14', "\\")
-        .replace('\x17', "'")
-        .replace('\x18', "\"")
-        .replace(crate::lexer::ANSI_C_QUOTE_MARKER_STR, "'")
-        .replace(crate::lexer::ANSI_C_DQUOTE_MARKER_STR, "\"")
 }
 
 pub(super) fn array_assignment_tokens(value: &str) -> Vec<String> {

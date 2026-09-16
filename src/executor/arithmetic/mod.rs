@@ -150,14 +150,25 @@ impl Executor {
     }
 
     pub(crate) fn eval_arithmetic_command_value(&mut self, expression: &str) -> Option<i128> {
+        self.eval_arithmetic_command_value_with_flags(expression, true)
+    }
+
+    pub(crate) fn eval_arithmetic_command_value_no_expand(&mut self, expression: &str) -> Option<i128> {
+        self.eval_arithmetic_command_value_with_flags(expression, false)
+    }
+
+    fn eval_arithmetic_command_value_with_flags(&mut self, expression: &str, expand: bool) -> Option<i128> {
         self.arithmetic_last_error_category.set(None);
         // Associative subscripts are expanded first, in their own pass, and
         // replaced by an opaque literal (see expand_arithmetic_assoc_subscripts)
         // so the ordinary expansion below cannot expand them a second time and
         // the parser stores the key verbatim.
         let with_assoc_keys = self.expand_arithmetic_assoc_subscripts(expression);
-        let expression =
-            normalize_arithmetic_quotes(&self.expand_arithmetic_expression_mut(&with_assoc_keys));
+        let expression = if expand {
+            normalize_arithmetic_quotes(&self.expand_arithmetic_expression_mut(&with_assoc_keys))
+        } else {
+            normalize_arithmetic_quotes(&with_assoc_keys)
+        };
         if crate::builtins::set::shell_option_enabled(&self.env_vars, "nounset") {
             if let Some(name) = arithmetic_unbound_variable(&expression, &self.env_vars) {
                 self.arithmetic_nounset_error.set(true);
@@ -183,10 +194,11 @@ impl Executor {
         }
         // Save a snapshot of variable values before evaluation to detect changes.
         ARITH_WRITES.with(|log| log.borrow_mut().clear());
-        let (value, category) = eval_mutable_arith_value_with_random(
+        let (value, category) = eval_mutable_arith_value_with_random_flags(
             &expression,
             &mut self.env_vars,
             Some(&self.random_state),
+            !expand,
         );
         self.arithmetic_last_error_category.set(category);
         self.report_arithmetic_readonly_error();
@@ -223,10 +235,11 @@ impl Executor {
         }
         // Save a snapshot to detect variable changes from arithmetic side effects
         ARITH_WRITES.with(|log| log.borrow_mut().clear());
-        let (value, category) = eval_mutable_arith_value_with_random(
+        let (value, category) = eval_mutable_arith_value_with_random_flags(
             &expression,
             &mut self.env_vars,
             Some(&self.random_state),
+            false,
         );
         self.arithmetic_last_error_category.set(category);
         self.report_arithmetic_readonly_error();
@@ -451,7 +464,7 @@ pub(crate) fn arithmetic_expansion_is_fatal(expression: &str) -> bool {
 
 pub(crate) fn arithmetic_error_category(expression: &str) -> Option<ArithmeticErrorCategory> {
     let mut env_vars = HashMap::new();
-    let (_, category) = eval_mutable_arith_result(expression, &mut env_vars, None);
+    let (_, category) = eval_mutable_arith_result(expression, &mut env_vars, None, false);
     category
 }
 
@@ -480,6 +493,7 @@ pub(in crate::executor) fn trailing_input_token(expression: &str) -> Option<Stri
         resolving: Vec::new(),
         random_state: None,
         error_category: None,
+        no_expand: false,
     };
     let _ = parser.parse_comma();
     parser.skip_ws();
@@ -529,7 +543,7 @@ pub(crate) fn eval_conditional_arith_value_categorized(
     env_vars: &HashMap<String, String>,
 ) -> (Option<i128>, Option<ArithmeticErrorCategory>) {
     let mut env_vars = env_vars.clone();
-    eval_mutable_arith_result(value, &mut env_vars, None)
+    eval_mutable_arith_result(value, &mut env_vars, None, false)
 }
 
 pub(super) fn arithmetic_unbound_variable(
@@ -975,9 +989,54 @@ fn arithmetic_error_message_ctx(
         ));
     }
 
+    // GNU expr.c:529: `--x=7` / `++x=7` — pre-increment returns a value,
+    // not an lvalue, so the `=` is "attempted assignment to non-variable".
+    if let Some(token) = pre_increment_assignment_token(expression) {
+        return Some(format!(
+            "{expression}: attempted assignment to non-variable (error token is \"{token}\")"
+        ));
+    }
+
+    // GNU expr.c:529: `x++=7` / `x--=7` — post-increment returns a value,
+    // not an lvalue, so the `=` is "attempted assignment to non-variable".
+    if let Some(token) = post_increment_assignment_token(expression) {
+        return Some(format!(
+            "{expression}: attempted assignment to non-variable (error token is \"{token}\")"
+        ));
+    }
+
+    // GNU expr.c:1465-1471: `--x++` / `++x--` — pre-increment returns a
+    // value, not an lvalue, so the post-increment fails with
+    // "++: assignment requires lvalue" / "--: assignment requires lvalue".
+    if let Some((token, msg)) = pre_post_increment_lvalue_token(expression) {
+        return Some(format!(
+            "{expression}: {msg} (error token is \"{token}\")"
+        ));
+    }
+
     // An empty ternary branch is a parse failure in Bash:
     // `$((4 ? 20 : ))` reports "expression expected" (error token is ": ").
     if let Some(token) = empty_ternary_branch_token(expression) {
+        return Some(format!(
+            "{expression}: expression expected (error token is \"{token}\")"
+        ));
+    }
+
+    // GNU expr.c:649-654: a ternary `?` without a matching `:` reports
+    // "`:' expected for conditional expression" with the token after the
+    // false-branch expression as the error token.
+    // e.g. `1 ? 20` -> "`:' expected for conditional expression" (error token is "20 ")
+    if let Some(token) = missing_ternary_colon_token(expression) {
+        return Some(format!(
+            "{expression}: `:' expected for conditional expression (error token is \"{token}\")"
+        ));
+    }
+
+    // GNU expr.c:647: a ternary `?` with an empty true-branch reports
+    // "expression expected" with the token after `?` as the error token.
+    // e.g. `4 ? : $A` -> "expression expected" (error token is ": 3 + 5 ")
+    // (the false-branch is parsed first, then the error points at the `:`)
+    if let Some(token) = empty_ternary_true_branch_token(expression) {
         return Some(format!(
             "{expression}: expression expected (error token is \"{token}\")"
         ));
@@ -1147,7 +1206,41 @@ fn arithmetic_error_message_ctx(
         ));
     }
 
+    // GNU expr.c: unbalanced ( reports missing ) with the last token
+    // as the error token (e.g. 7 + (43 * 6 -> token 6).
+    if let Some(token) = missing_paren_token(expression) {
+        return Some(format!(
+            "{expression}: missing `)' (error token is \"{token}\")"
+        ));
+    }
+
     None
+}
+
+
+/// GNU expr.c: a sub-expression with an unbalanced `(` reports "missing `)'"
+/// with the last token as the error token (e.g. `7 + (43 * 6` -> token "6").
+fn missing_paren_token(expression: &str) -> Option<String> {
+    let mut depth: i32 = 0;
+    for ch in expression.chars() {
+        if ch == '(' {
+            depth += 1;
+        } else if ch == ')' {
+            depth -= 1;
+        }
+    }
+    if depth <= 0 {
+        return None;
+    }
+    // GNU expr.c: lasttp points to the start of the last token read.
+    // For an unbalanced (, the parser has consumed the last token and
+    // expects ), so the error token is the last token in the expression.
+    let trimmed = expression.trim_end();
+    if let Some(space_pos) = trimmed.rfind(char::is_whitespace) {
+        Some(trimmed[space_pos..].trim().to_string())
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 fn invalid_octal_literal(expression: &str) -> Option<String> {
@@ -1260,6 +1353,36 @@ pub(super) fn arithmetic_division_by_zero_token(expression: &str) -> Option<Stri
     let bytes = expression.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
+        // Handle compound assignment operators `/=` and `%=`: the division
+        // by 0 check applies to the operand after the `=`, not the `=` itself.
+        // e.g. `b /= 0` -> division by 0 (error token is "0 ")
+        if matches!(bytes.get(index), Some(b'/') | Some(b'%'))
+            && bytes.get(index + 1) == Some(&b'=')
+        {
+            index += 2;
+            while bytes
+                .get(index)
+                .is_some_and(|byte| byte.is_ascii_whitespace())
+            {
+                index += 1;
+            }
+            let operand_start = index;
+            if matches!(bytes.get(index), Some(b'+' | b'-')) {
+                index += 1;
+            }
+            let start = index;
+            while bytes.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
+                index += 1;
+            }
+            if start != index
+                && expression[start..index]
+                    .parse::<i128>()
+                    .is_ok_and(|value| value == 0)
+            {
+                return Some(expression[operand_start..].to_string());
+            }
+            continue;
+        }
         if !matches!(bytes[index], b'/' | b'%') {
             index += 1;
             continue;
@@ -1304,6 +1427,15 @@ pub(super) fn eval_mutable_arith_value_with_random(
     env_vars: &mut HashMap<String, String>,
     random_state: Option<&Cell<u32>>,
 ) -> (Option<i128>, Option<ArithmeticErrorCategory>) {
+    eval_mutable_arith_value_with_random_flags(value, env_vars, random_state, false)
+}
+
+pub(super) fn eval_mutable_arith_value_with_random_flags(
+    value: &str,
+    env_vars: &mut HashMap<String, String>,
+    random_state: Option<&Cell<u32>>,
+    no_expand: bool,
+) -> (Option<i128>, Option<ArithmeticErrorCategory>) {
     // GNU Bash's subexpr() treats an empty arithmetic expression as zero.
     // This matters for expansion and variable contexts, where an empty
     // quoted operand is valid rather than a parser failure. Lexer quote
@@ -1312,13 +1444,14 @@ pub(super) fn eval_mutable_arith_value_with_random(
     if normalized.trim().is_empty() {
         return (Some(0), None);
     }
-    eval_mutable_arith_result(value, env_vars, random_state)
+    eval_mutable_arith_result(value, env_vars, random_state, no_expand)
 }
 
 fn eval_mutable_arith_result(
     value: &str,
     env_vars: &mut HashMap<String, String>,
     random_state: Option<&Cell<u32>>,
+    no_expand: bool,
 ) -> (Option<i128>, Option<ArithmeticErrorCategory>) {
     let normalized = normalize_arithmetic_quotes(value);
     if normalized.trim().is_empty() {
@@ -1331,6 +1464,7 @@ fn eval_mutable_arith_result(
         resolving: Vec::new(),
         random_state,
         error_category: None,
+        no_expand,
     };
     let value = parser.parse_comma();
     parser.skip_ws();
@@ -1484,6 +1618,126 @@ fn logical_rhs_assignment_token(expression: &str) -> Option<String> {
     None
 }
 
+/// GNU expr.c:529: `x++=7` / `x--=7` — post-increment returns a value,
+/// not an lvalue, so the following `=` is "attempted assignment to non-variable".
+/// The error token is the `=` and everything after.
+/// e.g. `x++=7` -> error token is "=7 "
+fn post_increment_assignment_token(expression: &str) -> Option<String> {
+    let trimmed = expression.trim_start();
+    let first = match trimmed.chars().next() {
+        Some(ch) if ch.is_ascii_alphabetic() || ch == '_' => ch,
+        _ => return None,
+    };
+    let mut len = first.len_utf8();
+    while trimmed[len..]
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+    {
+        len += trimmed[len..].chars().next().unwrap().len_utf8();
+    }
+    for post_op in ["++", "--"] {
+        if !trimmed[len..].starts_with(post_op) {
+            continue;
+        }
+        let after_op = trimmed[len + post_op.len()..].trim_start();
+        if !after_op.starts_with('=') {
+            continue;
+        }
+        // `x===7` is not a valid assignment.
+        if after_op[1..].starts_with('=') {
+            continue;
+        }
+        let var_end = len;
+        let ws_len = trimmed[len + post_op.len()..].len() - after_op.len();
+        let eq_abs = var_end + post_op.len() + ws_len;
+        let prefix_len = expression.len() - trimmed.len();
+        return Some(expression[prefix_len + eq_abs..].to_string());
+    }
+    None
+}
+
+/// GNU expr.c:1465-1471: `--x++` / `++x--` — pre-increment returns a value,
+/// not an lvalue, so the following post-increment/decrement fails with
+/// "++: assignment requires lvalue" or "--: assignment requires lvalue".
+/// The error token is the post-op and everything after.
+/// e.g. `--x++` -> error token is "++ "
+fn pre_post_increment_lvalue_token(expression: &str) -> Option<(String, &'static str)> {
+    let trimmed = expression.trim_start();
+    for pre_op in ["--", "++"] {
+        if !trimmed.starts_with(pre_op) {
+            continue;
+        }
+        let rest = trimmed[pre_op.len()..].trim_start();
+        let first = rest.chars().next()?;
+        if !(first.is_ascii_alphabetic() || first == '_') {
+            continue;
+        }
+        let mut len = first.len_utf8();
+        while rest[len..]
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        {
+            len += rest[len..].chars().next().unwrap().len_utf8();
+        }
+        let after_var = rest[len..].trim_start();
+        for post_op in ["++", "--"] {
+            if after_var.starts_with(post_op) {
+                let var_end = pre_op.len() + (trimmed[pre_op.len()..].len() - rest.len()) + len;
+                let ws_len = rest[len..].len() - after_var.len();
+                let post_abs = var_end + ws_len;
+                let msg = if post_op == "--" {
+                    "--: assignment requires lvalue"
+                } else {
+                    "++: assignment requires lvalue"
+                };
+                return Some((expression[post_abs..].to_string(), msg));
+            }
+        }
+    }
+    None
+}
+
+/// GNU expr.c:529: `--x=7` / `++x=7` — pre-increment/decrement returns a
+/// value, not an lvalue, so the following `=` is "attempted assignment to
+/// non-variable". The error token is the `=` and everything after.
+/// e.g. `--x=7` -> error token is "=7 "
+fn pre_increment_assignment_token(expression: &str) -> Option<String> {
+    let trimmed = expression.trim_start();
+    for op in ["--", "++"] {
+        if !trimmed.starts_with(op) {
+            continue;
+        }
+        let rest = trimmed[op.len()..].trim_start();
+        let first = rest.chars().next()?;
+        if !(first.is_ascii_alphabetic() || first == '_') {
+            continue;
+        }
+        let mut len = first.len_utf8();
+        while rest[len..]
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        {
+            len += rest[len..].chars().next().unwrap().len_utf8();
+        }
+        let after_var = rest[len..].trim_start();
+        if !after_var.starts_with('=') {
+            continue;
+        }
+        // `x==7` is equality, not assignment.
+        if after_var[1..].starts_with('=') {
+            continue;
+        }
+        let var_end = op.len() + (trimmed[op.len()..].len() - rest.len()) + len;
+        let ws_len = rest[len..].len() - after_var.len();
+        let eq_abs = var_end + ws_len;
+        return Some(expression[eq_abs..].to_string());
+    }
+    None
+}
+
 /// Detects `$((cond ? true :))` shapes where the false branch holds only
 /// whitespace; returns the `": "` error token GNU prints.
 fn empty_ternary_branch_token(expression: &str) -> Option<String> {
@@ -1494,6 +1748,39 @@ fn empty_ternary_branch_token(expression: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+/// GNU expr.c:649-654: a ternary `?` without a matching `:` reports
+/// "`:' expected for conditional expression". The error token is the
+/// false-branch expression (everything after `?`).
+/// e.g. `1 ? 20` -> error token is "20 "
+fn missing_ternary_colon_token(expression: &str) -> Option<String> {
+    let question = expression.find('?')?;
+    // No `:` found after `?` -- the entire false-branch is the error token.
+    if expression[question + 1..].find(':').is_none() {
+        let false_branch = expression[question + 1..].trim_start();
+        if !false_branch.is_empty() {
+            let mut token_start = question + 1;
+            while expression.as_bytes().get(token_start) == Some(&b' ') {
+                token_start += 1;
+            }
+            return Some(expression[token_start..].to_string());
+        }
+    }
+    None
+}
+
+/// GNU expr.c:647: a ternary `?` with an empty true-branch reports
+/// "expression expected". The error token is the `:` and everything after.
+/// e.g. `4 ? : $A` -> error token is ": 3 + 5 "
+fn empty_ternary_true_branch_token(expression: &str) -> Option<String> {
+    let question = expression.find('?')?;
+    let after_q = expression[question + 1..].trim_start();
+    if after_q.starts_with(':') {
+        let colon_pos = expression[question + 1..].find(':')? + question + 1;
+        return Some(expression[colon_pos..].to_string());
+    }
+    None
 }
 
 /// An operator at the end of the expression whose right-hand operand is

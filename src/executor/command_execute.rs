@@ -78,7 +78,9 @@ impl Executor {
                 .get_assignment("__RUBASH_PARSE_ERROR__")
                 .map(String::as_str)
                 .unwrap_or("unexpected token");
-            if message.starts_with("syntax error:") {
+            if message.starts_with("syntax error:")
+                || message.starts_with("arithmetic syntax error:")
+            {
                 eprintln!("{}{}", self.parser_diagnostic_prefix(), message);
                 if let Some(source) = cmd.get_assignment("__RUBASH_PARSE_SOURCE__") {
                     eprintln!(

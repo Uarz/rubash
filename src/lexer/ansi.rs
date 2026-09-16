@@ -2,7 +2,7 @@
 /// (U+0014 backslash, U+0017 quote, U+001A backtick, U+001F dollar). A byte
 /// with one of these values that came out of ANSI-C decoding is DATA, not a
 /// carrier, and must be tagged so the carrier restore cannot claim it.
-fn is_assignment_carrier_byte(byte: u32) -> bool {
+pub(crate) fn is_assignment_carrier_byte(byte: u32) -> bool {
     // U+000C form feed and U+0013 are not quote carriers, but they are
     // control bytes that StorageWordIter's is_ascii_whitespace splitter
     // (0x0c) and PARAM_NAME_END_MARKER (0x13) would otherwise claim,
@@ -38,8 +38,8 @@ pub(crate) fn decode_ansi_c_quoted(value: &str) -> String {
         match chars.next() {
             Some('a') => output.push('\x07'),
             Some('b') => output.push('\x08'),
-            Some('e') | Some('E') => output.push('\x1b'),
-            Some('f') => output.push('\x0c'),
+            Some('e') | Some('E') => push_ansi_c_byte(&mut output, 0x1b),
+            Some('f') => push_ansi_c_byte(&mut output, 0x0c),
             Some('n') => output.push('\n'),
             Some('r') => output.push('\r'),
             Some('t') => output.push('\t'),

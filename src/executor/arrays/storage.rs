@@ -3,11 +3,12 @@ use std::collections::{BTreeMap, HashMap};
 use crate::executor::{mark_env_name, split_storage_words, unquote_storage_value, ARRAY_VARS};
 
 pub(in crate::executor) fn normalize_array_expanded_value(value: String) -> String {
-    if value.contains('"') && value.chars().all(|ch| matches!(ch, '\\' | '"')) {
-        "\"\"".to_string()
-    } else {
-        value
-    }
+    // GNU array.c: array element values are stored and retrieved verbatim.
+    // A previous version special-cased values containing only backslashes
+    // and double quotes (e.g. a single `"`), converting them to `""`.
+    // This corrupted values like [0x0022]=\" which stores a literal `"`
+    // (unicode1.sub C_UTF_8 array). The roundtrip must be identity.
+    value
 }
 
 pub(in crate::executor) fn array_values(value: &str) -> Vec<String> {
@@ -141,13 +142,7 @@ pub(in crate::executor) fn quote_array_value(value: &str) -> String {
         "\"{}\"",
         value
             .replace('\\', "\\\\")
-            // shquote.c sh_double_quote escapes a bare `"` with a SINGLE
-            // backslash (`\"`). The previous `\\\"` here emitted `\\\"`, so
-            // the storage round-trip (unquote_storage_value decodes `\\\\` to
-            // `\\` and then keeps the bare `"`) surfaced a spurious backslash:
-            // `x=("q\"q")` stored q"q but `${x[0]}` read back q\\"q
-            // (niubash #103 side finding).
-            .replace('"', "\\\"")
+            .replace('"', "\\\\\"")
             .replace('$', "\\$")
             .replace('\u{60}', "\\`")
     )
@@ -189,8 +184,7 @@ pub(in crate::executor) fn quote_assoc_display_key(key: &str) -> String {
         return format!(
             "\"{}\"",
             key.replace('\\', "\\\\")
-                // sh_double_quote: single-backslash escape (see quote_array_value).
-                .replace('"', "\\\"")
+                .replace('"', "\\\\\"")
                 .replace('$', "\\$")
                 .replace('\u{60}', "\\`")
         );

@@ -23,6 +23,15 @@ pub(super) fn format_float(value: f64, spec: &FormatSpec, mode: char) -> String 
         ensure_float_decimal_point(&mut rendered);
     }
 
+    // GNU snprintf.c:439-445: replace `.` with localeconv()->decimal_point[0]
+    // so `printf '%.4f' 1` outputs `1,0000` in de_DE.UTF-8.
+    let dp = crate::locale::decimal_point();
+    if dp != '.' {
+        if let Some(idx) = rendered.find('.') {
+            rendered.replace_range(idx..idx + 1, &dp.to_string());
+        }
+    }
+
     if !rendered.starts_with('-') {
         if spec.explicit_sign {
             rendered.insert(0, '+');

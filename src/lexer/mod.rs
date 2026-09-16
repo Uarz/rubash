@@ -206,6 +206,37 @@ fn tokenize_with_heredocs(
 
         let comsub_open = has_unclosed_command_substitution(&logical_line);
         if !comsub_open {
+            // GNU make_cmd.c:602-611: when the `)` closing the command
+            // substitution sits on the heredoc delimiter line (e.g. `EOF)`),
+            // the heredoc is "delimited by end-of-file" and a warning is
+            // issued. Mark the logical line with \x1c before the `)` so
+            // command_substitution_heredoc_output_mut_typed can detect this
+            // case. Only mark when the current line matches a tracked heredoc
+            // delimiter followed by `)` — NOT when `)` is on the header line
+            // (e.g. `cat << EOF)`), which is a different case handled by
+            // heredoc_header_closes_command_substitution.
+            if let Some(front) = comsub_heredocs.first().cloned() {
+                let comparable = if front.strip_tabs {
+                    line.trim_start_matches('\t')
+                } else {
+                    line
+                };
+                if comparable.starts_with(front.delimiter.as_str())
+                    && comparable[front.delimiter.len()..].contains(')')
+                {
+                    // Insert \x1c before the first `)` after the delimiter
+                    // in the logical line. command_substitution_heredoc_output_mut_typed
+                    // will detect and remove it before parsing.
+                    let after_delim = logical_line
+                        .rfind(front.delimiter.as_str())
+                        .map(|pos| pos + front.delimiter.len())
+                        .unwrap_or(0);
+                    if let Some(rel_pos) = logical_line[after_delim..].find(')') {
+                        let abs_pos = after_delim + rel_pos;
+                        logical_line.insert(abs_pos, '\x1c');
+                    }
+                }
+            }
             comsub_heredocs.clear();
         } else if let Some(front) = comsub_heredocs.first().cloned() {
             // The appended line is a heredoc body line inside the open
@@ -334,7 +365,16 @@ fn tokenize_with_heredocs(
             let mut continued_body_line = String::new();
             let mut found_delimiter = false;
             let mut found_with_warning = false;
-            for body_line in lines.by_ref() {
+            while let Some(body_line) = lines.next() {
+                // Skip the trailing empty string produced by split('\n')
+                // when the input ends with '\n' (matching the main loop's
+                // str::lines() semantics). Without this, an unterminated
+                // heredoc at EOF gets an extra empty body line, making the
+                // warning line number off by 1.
+                if body_line.is_empty() && lines.peek().is_none() {
+                    break;
+                }
+                let body_line = body_line.to_string();
                 position += body_line.len() + 1;
                 line_number += 1;
                 let mut raw_line = body_line.to_string();

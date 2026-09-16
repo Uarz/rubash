@@ -46,7 +46,21 @@ pub(crate) fn u32cconv_utf8_text(value: u32) -> String {
     // IFS splitter must see exactly one delimiter char, not a marker-pair
     // byte sequence. Only values with no char form need the raw-byte
     // marker carrier.
+    //
+    // Control characters that are assignment carrier bytes (0x0c, 0x11,
+    // 0x13, 0x14, 0x16, 0x17, 0x18, 0x1a, 0x1b, 0x1c, 0x1d, 0x1f) must
+    // be encoded as raw-byte markers to match the ANSI-C lexer's
+    // push_ansi_c_byte encoding. Without this, `printf -v r '\U00000013'`
+    // stores raw char \x13, but `$'\023'` stores a marker pair — they
+    // compare unequal (unicode1.sub: EChar != RChar) and `$r` expansion
+    // strips the raw char (len=0, %q='').
     if let Some(ch) = char::from_u32(value) {
+        if (value as u32) <= 0x7f
+            && ch.is_control()
+            && crate::lexer::ansi::is_assignment_carrier_byte(value)
+        {
+            return encode_raw_byte_marker(value as u8);
+        }
         return String::from(ch);
     }
     if value > 0x7fff_ffff {

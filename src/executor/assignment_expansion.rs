@@ -144,7 +144,7 @@ impl Executor {
     }
 
     fn expand_assignment_value_inner(&mut self, value: &str) -> String {
-        // The verbatim single-element fast path is only for storage-shaped
+                // The verbatim single-element fast path is only for storage-shaped
         // values without expansions: a compound value containing a
         // parameter expansion (e.g. (${!xx})) must reach the compound
         // expander below or the expansion text lands in the array as a
@@ -204,15 +204,17 @@ impl Executor {
                 .replace('\x1f', "$")
                 .replace('\x1a', "`")
                 .replace('\x14', "\\")
-                // The escaped-quote carriers must restore too: the lexer
-                // emits \x17 for `\'` and \x18 for `\"` in the source word
-                // (alias_helpers.rs word lexer), and a quoted assignment
-                // reaches this fast path with the carriers still in place.
-                // Missing the \x18 restore leaked the raw CAN byte into
-                // storage: `x="q\"q"` stored q\x18q (niubash issue #103) —
-                // length intact, rc 0, silent corruption on redirect.
-                .replace('\x17', "'")
+                // `\"` and `'` inside double quotes travel as the walker's
+                // data-quote markers (\x18 for \" and \x17 for ' inside "
+                // quotes, quotes.rs skip_double_quoted / quoted=='\'' arm):
+                // restoring them here is what keeps the stored value
+                // byte-identical to GNU's `q"q` (niubash#103 regression —
+                // commit 7ab91ffd introduced the \x18 marker but this fast
+                // path never un-did it, so the value leaked U+0018 into
+                // storage and into files written by printf). The PUA quote
+                // markers below are the $'...' family and are disjoint.
                 .replace('\x18', "\"")
+                .replace('\x17', "'")
                 .replace(crate::lexer::ANSI_C_QUOTE_MARKER_STR, "'")
                 .replace(crate::lexer::ANSI_C_DQUOTE_MARKER_STR, "\"");
             // The lexer marks quoted glob metacharacters (*?[!@+) with a
@@ -284,13 +286,13 @@ impl Executor {
             }
         }
         self.apply_parameter_assignment_expansions_in_word(value);
-        if let Some(expanded) = self.expand_compound_positional_at_assignment(value, quoted) {
-            if compound_assignment {
+                if let Some(expanded) = self.expand_compound_positional_at_assignment(value, quoted) {
+                        if compound_assignment {
                 return format!("{COMPOUND_ASSIGNMENT_MARKER}{expanded}");
             }
             return expanded;
         }
-        if let Some(expanded) = self.expand_unquoted_parameter_compound_assignment(value) {
+                if let Some(expanded) = self.expand_unquoted_parameter_compound_assignment(value) {
             if compound_assignment {
                 return format!("{COMPOUND_ASSIGNMENT_MARKER}{expanded}");
             }
@@ -391,7 +393,20 @@ impl Executor {
             } else {
                 expanded_value.clone()
             };
-            unescape_remaining_shell_escapes(&stripped)
+            // GNU parse.y:5368-5397 read_token_word: a backslash outside any
+            // quote removes itself and keeps the next char literal. In a
+            // compound assignment, the backslash is part of the element
+            // token structure and must survive for split_storage_words to
+            // recognize it (unicode1.sub [0x0020]=\ stores a space, not an
+            // empty element). unescape_remaining_shell_escapes would strip
+            // the backslash from `\ `, turning it into a bare space that
+            // the storage tokenizer treats as a field separator.
+            let unescaped = if compound_paren_value {
+                stripped
+            } else {
+                unescape_remaining_shell_escapes(&stripped)
+            };
+            unescaped
                 .replace(DATA_SINGLE_QUOTE, "'")
                 .replace(DATA_DOUBLE_QUOTE, "\"")
         };

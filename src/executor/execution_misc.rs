@@ -1,5 +1,18 @@
 use super::*;
 
+/// GNU general.c:1019 printable_filename: if the string contains non-
+/// printable characters, return it as a $'...' ANSI-C quoted form; otherwise
+/// return it unchanged. Used by execute_disk_command (execute_cmd.c:5909)
+/// before printing "command not found" so a CR-only command name shows as
+/// `$'\r'` instead of a raw control character.
+pub(in crate::executor) fn printable_filename(name: &str) -> String {
+    if super::arrays::ansic_shouldquote(name) {
+        super::arrays::ansic_quote(name)
+    } else {
+        name.to_string()
+    }
+}
+
 pub(in crate::executor) fn is_arithmetic_command_words(words: &[String]) -> bool {
     matches!(words, [open, _, close] if open == "((" && close == "))")
 }

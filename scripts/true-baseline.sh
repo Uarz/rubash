@@ -44,6 +44,21 @@ GNU_BASH=/usr/local/bin/bash
 GNU_VER=$("$GNU_BASH" --version | head -1)
 case "$GNU_VER" in *"version 5.3.0"*) ;; *) echo "FATAL: GNU baseline must be 5.3.0, got: $GNU_VER" >&2; exit 9 ;; esac
 
+# ---- locale: ensure en_US.UTF-8 is available --------------------------------
+# intl.tests/unicode*.sub require en_US.UTF-8 for proper multibyte char counting.
+# Without it, GNU bash emits "warning: setlocale: LC_ALL: cannot change locale"
+# and falls back to C locale (byte counting), producing a broken baseline that
+# inflates intl diff by ~57 lines of pure environment noise. Generate the locale
+# if missing (one-time, ~1s). This makes the GNU side match intl.right.
+if ! locale -a 2>/dev/null | grep -qx en_US.utf8; then
+  locale-gen en_US.UTF-8 >/dev/null 2>&1 || true
+fi
+# intl2.sub also needs de_DE.UTF-8 for LC_NUMERIC decimal separator tests
+if ! locale -a 2>/dev/null | grep -qx de_DE.utf8; then
+  locale-gen de_DE.UTF-8 >/dev/null 2>&1 || true
+fi
+export LC_ALL=en_US.UTF-8
+
 # ---- sync: LF-normalized rw copies -----------------------------------------
 mkdir -p "$BASE"
 if [ ! -f "$BASE/recho" ] && [ -d "$TESTS_SRC" ]; then

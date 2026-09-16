@@ -142,6 +142,33 @@ pub fn effective_length(s: &str) -> usize {
     }
 }
 
+/// Return the locale-aware decimal point character for `printf %f` output.
+///
+/// GNU `snprintf.c:439-445` calls `localeconv()` and replaces the `.` in
+/// rendered floating-point output with `localeconv()->decimal_point[0]`.
+/// In `de_DE.UTF-8` this is `,`, so `printf '%.4f' 1` outputs `1,0000`.
+/// In `C`/`en_US.UTF-8` it stays `.`.
+///
+/// Priority follows GNU: `LC_NUMERIC` > `LC_ALL` > `LANG`. An unset or
+/// `C`/`POSIX` locale returns `.`.
+pub fn decimal_point() -> char {
+    let numeric = std::env::var("LC_NUMERIC").unwrap_or_default();
+    let locale = if !numeric.is_empty() {
+        numeric
+    } else {
+        locale_name()
+    };
+    let lower = locale.to_lowercase();
+    if lower.starts_with("de_de") || lower.starts_with("fr_fr") || lower.starts_with("es_es")
+        || lower.starts_with("it_it") || lower.starts_with("pt_pt") || lower.starts_with("nl_nl")
+        || lower.starts_with("ru_ru") || lower.starts_with("pl_pl")
+    {
+        ','
+    } else {
+        '.'
+    }
+}
+
 /// Check if a character is printable (locale-aware).
 pub fn is_printable(c: char) -> bool {
     if is_utf8() {

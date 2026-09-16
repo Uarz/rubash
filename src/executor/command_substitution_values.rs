@@ -662,7 +662,10 @@ impl Executor {
         // gather_here_documents was called (the line where `<<EOF` appeared),
         // and internal_warning's prefix uses the current line_number (after
         // make_here_document read the body, i.e. the EOF/delimiter line).
-        let warning_line = current_line + source.lines().count().saturating_sub(1);
+        // Use start_line (which accounts for leading newlines in the comsub
+        // source) as the base, not current_line (which is the outer command
+        // line, not the comsub body start line).
+        let warning_line = start_line + source.lines().count().saturating_sub(1);
         let delimiter = command.heredoc_delimiter.as_deref().unwrap_or("");
         eprintln!(
             "{}warning: here-document at line {start_line} delimited by end-of-file (wanted `{delimiter}')",

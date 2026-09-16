@@ -19,6 +19,7 @@ pub(super) struct ConditionalArithParser<'a> {
     pub(super) resolving: Vec<String>,
     pub(super) random_state: Option<&'a Cell<u32>>,
     pub(super) error_category: Option<super::ArithmeticErrorCategory>,
+    pub(super) no_expand: bool,
 }
 
 #[derive(Clone)]

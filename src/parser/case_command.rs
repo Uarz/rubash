@@ -56,7 +56,7 @@ pub(super) fn parse_case_command(tokens: &[Token], start: usize) -> Option<(Comm
             command.line = tokens.get(start).map(|token| token.position);
             command.insert_assignment(
                 "__RUBASH_PARSE_ERROR__".to_string(),
-                "syntax error near unexpected token `)'".to_string(),
+                "unexpected token `)'".to_string(),
             );
             command.insert_assignment("__RUBASH_PARSE_SOURCE__".to_string(), source);
             return Some(finish_compound_command(command, tokens, final_esac + 1));

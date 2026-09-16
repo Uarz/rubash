@@ -76,7 +76,23 @@ pub(super) fn is_noassign_bash_array(name: &str) -> bool {
 pub(super) fn eval_arith_value(value: &str) -> i128 {
     value
         .split('+')
-        .map(|part| part.trim().parse::<i128>().unwrap_or(0))
+        .map(|part| {
+            let part = part.trim();
+            // GNU expr.c: hex (0x...), octal (0...), and decimal literals
+            // are all valid in array subscripts (arrayfunc.c:753
+            // assign_compound_array_list calls evalexp, the full
+            // arithmetic evaluator). The previous split-on-'+' parser
+            // only handled decimal, so [0x0020] evaluated to 0 and
+            // every hex-subscripted element landed at index 0
+            // (unicode1.sub C_UTF_8 array).
+            if let Some(hex) = part.strip_prefix("0x").or_else(|| part.strip_prefix("0X")) {
+                i128::from_str_radix(hex, 16).unwrap_or(0)
+            } else if part.len() > 1 && part.starts_with('0') && part.bytes().all(|b| b.is_ascii_digit()) {
+                i128::from_str_radix(part, 8).unwrap_or(0)
+            } else {
+                part.parse::<i128>().unwrap_or(0)
+            }
+        })
         .sum()
 }
 

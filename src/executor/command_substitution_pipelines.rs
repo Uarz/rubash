@@ -240,8 +240,14 @@ impl Executor {
                 self.diagnostic_prefix_for_line(start_line)
             );
         }
+        let comsub_start_line = self
+            .env_vars
+            .get("__RUBASH_CURRENT_LINE")
+            .and_then(|line| line.parse::<usize>().ok())
+            .unwrap_or(1)
+            + self.comsub_leading_newlines.get();
         let tokens =
-            crate::lexer::tokenize_comsub_body(&source, self.posix_mode_enabled(), 1, true);
+            crate::lexer::tokenize_comsub_body(&source, self.posix_mode_enabled(), comsub_start_line, true);
         let ast = crate::parser::parse(&tokens);
         let first = ast.commands.first()?;
         let (first, piped_next) = if let Some(pipeline_command) = &first.pipeline_command {
@@ -256,7 +262,20 @@ impl Executor {
             return None;
         }
         if closed_by_paren || command_has_warned_heredoc(first) {
-            self.report_command_substitution_heredoc_warning(&source, first);
+            // Deduplicate: the same comsub can be expanded through multiple
+            // paths (expand_assignment_value_inner and
+            // expand_embedded_parameters_mut), which would emit the warning
+            // twice. Track the last warning source and skip duplicates.
+            let should_emit = self
+                .last_heredoc_warning_source
+                .borrow()
+                .as_deref()
+                .map(|last| last != source)
+                .unwrap_or(true);
+            if should_emit {
+                *self.last_heredoc_warning_source.borrow_mut() = Some(source.to_string());
+                self.report_command_substitution_heredoc_warning(&source, first);
+            }
         }
         let mut output = if first.pipe.is_none() && ast.commands.len() > 1 {
             let mut output = String::new();
@@ -305,8 +324,14 @@ impl Executor {
 
         let closed_by_paren = source.contains('\x1c');
         let source = source.replace('\x1c', "");
+        let comsub_start_line = self
+            .env_vars
+            .get("__RUBASH_CURRENT_LINE")
+            .and_then(|line| line.parse::<usize>().ok())
+            .unwrap_or(1)
+            + self.comsub_leading_newlines.get();
         let tokens =
-            crate::lexer::tokenize_comsub_body(&source, self.posix_mode_enabled(), 1, true);
+            crate::lexer::tokenize_comsub_body(&source, self.posix_mode_enabled(), comsub_start_line, true);
         let ast = crate::parser::parse(&tokens);
         let first = ast.commands.first()?;
         let (first, piped_next) = if let Some(pipeline_command) = &first.pipeline_command {
@@ -321,9 +346,11 @@ impl Executor {
             return None;
         }
 
-        if closed_by_paren || command_has_warned_heredoc(first) {
-            self.report_command_substitution_heredoc_warning(&source, first);
-        }
+        // Warning is emitted by command_substitution_heredoc_output_mut_typed
+        // (the typed path) to avoid duplicate warnings when both paths are
+        // called for the same comsub.
+        let _ = closed_by_paren;
+        let _ = command_has_warned_heredoc(first);
 
         if first.pipe.is_none() && ast.commands.len() > 1 {
             let mut output = String::new();
