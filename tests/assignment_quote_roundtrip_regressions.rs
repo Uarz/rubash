@@ -45,3 +45,33 @@ fn ansi_c_control_bytes_stay_raw_at_their_boundary() {
         b"\x11\x16".to_vec()
     );
 }
+
+// niubash issue #103: the lexer's \x18 carrier for `\"` inside double quotes
+// was not restored by the quoted-assignment fast path, so the stored value
+// kept a raw CAN (0x18) byte: length intact, rc 0, silent corruption that
+// survives into redirected files. GNU bash stores the literal `"` (0x22).
+#[test]
+fn escaped_double_quote_in_assignment_is_literal_quote() {
+    assert_eq!(
+        rubash_raw("x=\"q\\\"q\"; printf '%s' \"$x\""),
+        b"q\"q".to_vec()
+    );
+}
+
+#[test]
+fn multiple_escaped_double_quotes_all_restore() {
+    assert_eq!(
+        rubash_raw("x=\"a\\\"b\\\"c\"; printf '%s' \"$x\""),
+        b"a\"b\"c".to_vec()
+    );
+}
+
+#[test]
+fn escaped_double_quote_survives_expansion_and_heredoc() {
+    assert_eq!(
+        rubash("p=\"a\\\"b\"\nx=\"$p-$p\"\necho \"[$x]\""),
+        "[a\"b-a\"b]\n"
+    );
+    assert_eq!(rubash("x=\"q\\\"q\"\necho \"[${x:-none}]\""), "[q\"q]\n");
+    assert_eq!(rubash("x=\"q\\\"q\"\ncat <<EOF\n[$x]\nEOF"), "[q\"q]\n");
+}
