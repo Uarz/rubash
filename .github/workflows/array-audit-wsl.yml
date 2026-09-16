@@ -1,0 +1,60 @@
+name: Array audit WSL Bash 5.3
+on:
+  workflow_dispatch:
+  push:
+    branches: [fix/array-quote-audit]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build the Windows subject
+        shell: pwsh
+        run: |
+          cargo build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364
+        with:
+          distribution: Ubuntu-24.04
+          additional-packages: build-essential curl locales
+          wsl-version: 1
+      - name: Build GNU Bash 5.3.0 in WSL
+        shell: wsl-bash {0}
+        run: |
+          mkdir -p /tmp/bash-oracle
+          cd /tmp/bash-oracle
+          curl -fL https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz -o bash.tar.gz
+          sha256sum bash.tar.gz
+          tar -xzf bash.tar.gz
+          cd bash-5.3
+          ./configure --prefix=/usr/local --without-bash-malloc
+          make -j2
+          make install
+          /usr/local/bin/bash --version
+      - name: Record focused baseline and the full bounded ledger
+        shell: wsl-bash {0}
+        run: |
+          unset BASH_ENV WINUXSH_ROOT
+          unset -f rm rmdir unlink || true
+          mkdir -p target/issue-suites/results/array-audit
+          out=target/issue-suites/results/array-audit
+          script=tests/difftest/cases/array-quote-audit.sh
+          set +e
+          LC_ALL=C timeout -k 5 30 /usr/local/bin/bash "$script" > "$out/gnu.out" 2> "$out/gnu.err"
+          echo $? > "$out/gnu.rc"
+          LC_ALL=C __RUBASH_NO_UPSTREAM_SCRIPTS=1 timeout -k 5 30 target/debug/rubash.exe "$script" > "$out/rubash.out" 2> "$out/rubash.err"
+          echo $? > "$out/rubash.rc"
+          diff -u "$out/gnu.out" "$out/rubash.out" > "$out/stdout.diff"
+          bash scripts/true-baseline.sh
+          exit $?
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: array-audit-${{ github.sha }}
+          path: target/issue-suites/results/
