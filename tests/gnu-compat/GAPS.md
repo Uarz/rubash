@@ -231,3 +231,37 @@ arith 措辞、heredoc EOF 警告行号、trap 参数校验、invalid identifier
 2. 分类 B → G11/G12/G13/G14 批量修（纯消息层，风险低）。G11 上下文措辞已修（`3e348d53`）。
 3. 分类 D → run-83.sh 归一化白名单（harness 层，已随 c22dfdb9 提交）。
 4. 分类 C → 按本文档逐条开 issue，G18（挂起）与 G1/G2/G3（语义）优先。
+
+---
+
+## 2026-09-16 复核（feat/gnu-compat-batch1，HEAD 79aac755）
+
+### 已修
+- **G16 xtrace 算术/for/case/赋值前缀**（`565ba986` + `79aac755`）：
+  ① 普通 `(( ))` 双打印去掉、保留括号间原文（GNU `+ ((  n  ))`）；
+  ② for 头每迭代一行（`for i;` 形式打字面 `"$@"`）；
+  ③ case 头一行（raw word）；
+  ④ 赋值前缀独立成行（`foo=one echo hi` → `+ foo=one` `+ echo hi`）。
+  上游 set-x.tests 剩余差异只剩两类子 gap（见下）。
+- **实锤已修（ledger 过时项，双端探针一致）**：G8① read readonly stat=2、
+  G13 trap -p/-P 校验、G9 $"..." locale、G10 词切分反斜杠、G23 控制字符、
+  G1 set -e 花括号退出（`{ false; }` rc=1 一致）。
+
+### set-x 剩余子 gap（本轮新定位）
+- **BASH_XTRACEFD**：GNU 支持 trace fd 重定向（`exec 4>file` 后 xtrace 进
+  文件），非法值报 `BASH_XTRACEFD: 4: invalid value for trace file
+  descriptor`；rubash 完全未实现（print_cmd.c CHECK_XTRACEFD 语义）。
+- **xtrace 词引用**：GNU 对 xtrace 词做 quoting（`metas=(\| \& ...)`、
+  `n=($@)` 原样打印）；rubash 输出未引用形态（print_cmd.c
+  xtrace_print_word_list 的 qtags 规则）。
+
+### 新发现（下一轮候选）
+- **varenv 非确定**：varenv9.sub readonly 局部/全局 scoping 两次运行结果
+  不同（105↔107 行差异），master 同样存在，需定位。
+- **混合行尾敏感**：set-x.tests 的 CRLF/LF 副本曾出现不同 xtrace 行为
+  （复现不稳定，疑似 lexer/parser 状态泄漏，待隔离最小复现）。
+
+### 当前 check 口径
+PASS=34 / DIFF=48 / TIMEOUT=1（HEAD 79aac755，debug 构建，150s 超时）。
+大头：intl 1378（i18n 长期项）、errors 385（G11/G12 消息层）、array 242、
+assoc 200、nameref 196（G5-G7 数组族）。

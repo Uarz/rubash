@@ -64,6 +64,14 @@ impl Executor {
                 for_command.words.join(" ")
             )
         };
+        // GNU print_cmd.c:609 xtrace_print_for_command_head prints the literal
+        // word list as written — for the implicit `in "$@"` form the trace
+        // shows `for i in "$@"` verbatim (map_list keeps the unexpanded "$@").
+        let for_xtrace_text = if for_command.default_positional {
+            format!("for {} in \"$@\"", for_command.variable)
+        } else {
+            for_text.clone()
+        };
         let mut ran_body = false;
         // GNU execute_cmd.c:3039 sets line_number = for_command->line before
         // each per-iteration debug fire; without the reset the fire inherits
@@ -71,6 +79,13 @@ impl Executor {
         // loops report the for head's line on every iteration).
         let for_line = self.env_vars.get("__RUBASH_CURRENT_LINE").cloned();
         for value in values {
+            // GNU execute_cmd.c:3062-3063 (eval_arith... execute_for_command
+            // iteration loop): `set -x` traces the for head once per
+            // iteration, before the loop variable is assigned.
+            if self.xtrace_enabled() {
+                let prefix = self.xtrace_prefix();
+                eprintln!("{prefix}{for_xtrace_text}");
+            }
             // Bash fires the DEBUG trap for the `for` command once per
             // iteration (execute_cmd.c execute_for_command), but only where
             // the trap is in scope (functions without functrace do not
