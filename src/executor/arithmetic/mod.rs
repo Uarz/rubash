@@ -975,9 +975,46 @@ fn arithmetic_error_message_ctx(
         ));
     }
 
+    // GNU expr.c:529: `--x=7` / `++x=7` — pre-increment returns a value,
+    // not an lvalue, so the `=` is "attempted assignment to non-variable".
+    if let Some(token) = pre_increment_assignment_token(expression) {
+        return Some(format!(
+            "{expression}: attempted assignment to non-variable (error token is \"{token}\")"
+        ));
+    }
+
+    // GNU expr.c:1465-1471: `--x++` / `++x--` — pre-increment returns a
+    // value, not an lvalue, so the post-increment fails with
+    // "++: assignment requires lvalue" / "--: assignment requires lvalue".
+    if let Some((token, msg)) = pre_post_increment_lvalue_token(expression) {
+        return Some(format!(
+            "{expression}: {msg} (error token is \"{token}\")"
+        ));
+    }
+
     // An empty ternary branch is a parse failure in Bash:
     // `$((4 ? 20 : ))` reports "expression expected" (error token is ": ").
     if let Some(token) = empty_ternary_branch_token(expression) {
+        return Some(format!(
+            "{expression}: expression expected (error token is \"{token}\")"
+        ));
+    }
+
+    // GNU expr.c:649-654: a ternary `?` without a matching `:` reports
+    // "`:' expected for conditional expression" with the token after the
+    // false-branch expression as the error token.
+    // e.g. `1 ? 20` -> "`:' expected for conditional expression" (error token is "20 ")
+    if let Some(token) = missing_ternary_colon_token(expression) {
+        return Some(format!(
+            "{expression}: `:' expected for conditional expression (error token is \"{token}\")"
+        ));
+    }
+
+    // GNU expr.c:647: a ternary `?` with an empty true-branch reports
+    // "expression expected" with the token after `?` as the error token.
+    // e.g. `4 ? : $A` -> "expression expected" (error token is ": 3 + 5 ")
+    // (the false-branch is parsed first, then the error points at the `:`)
+    if let Some(token) = empty_ternary_true_branch_token(expression) {
         return Some(format!(
             "{expression}: expression expected (error token is \"{token}\")"
         ));
@@ -1260,6 +1297,36 @@ pub(super) fn arithmetic_division_by_zero_token(expression: &str) -> Option<Stri
     let bytes = expression.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
+        // Handle compound assignment operators `/=` and `%=`: the division
+        // by 0 check applies to the operand after the `=`, not the `=` itself.
+        // e.g. `b /= 0` -> division by 0 (error token is "0 ")
+        if matches!(bytes.get(index), Some(b'/') | Some(b'%'))
+            && bytes.get(index + 1) == Some(&b'=')
+        {
+            index += 2;
+            while bytes
+                .get(index)
+                .is_some_and(|byte| byte.is_ascii_whitespace())
+            {
+                index += 1;
+            }
+            let operand_start = index;
+            if matches!(bytes.get(index), Some(b'+' | b'-')) {
+                index += 1;
+            }
+            let start = index;
+            while bytes.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
+                index += 1;
+            }
+            if start != index
+                && expression[start..index]
+                    .parse::<i128>()
+                    .is_ok_and(|value| value == 0)
+            {
+                return Some(expression[operand_start..].to_string());
+            }
+            continue;
+        }
         if !matches!(bytes[index], b'/' | b'%') {
             index += 1;
             continue;
@@ -1484,6 +1551,87 @@ fn logical_rhs_assignment_token(expression: &str) -> Option<String> {
     None
 }
 
+/// GNU expr.c:1465-1471: `--x++` / `++x--` — pre-increment returns a value,
+/// not an lvalue, so the following post-increment/decrement fails with
+/// "++: assignment requires lvalue" or "--: assignment requires lvalue".
+/// The error token is the post-op and everything after.
+/// e.g. `--x++` -> error token is "++ "
+fn pre_post_increment_lvalue_token(expression: &str) -> Option<(String, &'static str)> {
+    let trimmed = expression.trim_start();
+    for pre_op in ["--", "++"] {
+        if !trimmed.starts_with(pre_op) {
+            continue;
+        }
+        let rest = trimmed[pre_op.len()..].trim_start();
+        let first = rest.chars().next()?;
+        if !(first.is_ascii_alphabetic() || first == '_') {
+            continue;
+        }
+        let mut len = first.len_utf8();
+        while rest[len..]
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        {
+            len += rest[len..].chars().next().unwrap().len_utf8();
+        }
+        let after_var = rest[len..].trim_start();
+        for post_op in ["++", "--"] {
+            if after_var.starts_with(post_op) {
+                let var_end = pre_op.len() + (trimmed[pre_op.len()..].len() - rest.len()) + len;
+                let ws_len = rest[len..].len() - after_var.len();
+                let post_abs = var_end + ws_len;
+                let msg = if post_op == "--" {
+                    "--: assignment requires lvalue"
+                } else {
+                    "++: assignment requires lvalue"
+                };
+                return Some((expression[post_abs..].to_string(), msg));
+            }
+        }
+    }
+    None
+}
+
+/// GNU expr.c:529: `--x=7` / `++x=7` — pre-increment/decrement returns a
+/// value, not an lvalue, so the following `=` is "attempted assignment to
+/// non-variable". The error token is the `=` and everything after.
+/// e.g. `--x=7` -> error token is "=7 "
+fn pre_increment_assignment_token(expression: &str) -> Option<String> {
+    let trimmed = expression.trim_start();
+    for op in ["--", "++"] {
+        if !trimmed.starts_with(op) {
+            continue;
+        }
+        let rest = trimmed[op.len()..].trim_start();
+        let first = rest.chars().next()?;
+        if !(first.is_ascii_alphabetic() || first == '_') {
+            continue;
+        }
+        let mut len = first.len_utf8();
+        while rest[len..]
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        {
+            len += rest[len..].chars().next().unwrap().len_utf8();
+        }
+        let after_var = rest[len..].trim_start();
+        if !after_var.starts_with('=') {
+            continue;
+        }
+        // `x==7` is equality, not assignment.
+        if after_var[1..].starts_with('=') {
+            continue;
+        }
+        let var_end = op.len() + (trimmed[op.len()..].len() - rest.len()) + len;
+        let ws_len = rest[len..].len() - after_var.len();
+        let eq_abs = var_end + ws_len;
+        return Some(expression[eq_abs..].to_string());
+    }
+    None
+}
+
 /// Detects `$((cond ? true :))` shapes where the false branch holds only
 /// whitespace; returns the `": "` error token GNU prints.
 fn empty_ternary_branch_token(expression: &str) -> Option<String> {
@@ -1494,6 +1642,39 @@ fn empty_ternary_branch_token(expression: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+/// GNU expr.c:649-654: a ternary `?` without a matching `:` reports
+/// "`:' expected for conditional expression". The error token is the
+/// false-branch expression (everything after `?`).
+/// e.g. `1 ? 20` -> error token is "20 "
+fn missing_ternary_colon_token(expression: &str) -> Option<String> {
+    let question = expression.find('?')?;
+    // No `:` found after `?` -- the entire false-branch is the error token.
+    if expression[question + 1..].find(':').is_none() {
+        let false_branch = expression[question + 1..].trim_start();
+        if !false_branch.is_empty() {
+            let mut token_start = question + 1;
+            while expression.as_bytes().get(token_start) == Some(&b' ') {
+                token_start += 1;
+            }
+            return Some(expression[token_start..].to_string());
+        }
+    }
+    None
+}
+
+/// GNU expr.c:647: a ternary `?` with an empty true-branch reports
+/// "expression expected". The error token is the `:` and everything after.
+/// e.g. `4 ? : $A` -> error token is ": 3 + 5 "
+fn empty_ternary_true_branch_token(expression: &str) -> Option<String> {
+    let question = expression.find('?')?;
+    let after_q = expression[question + 1..].trim_start();
+    if after_q.starts_with(':') {
+        let colon_pos = expression[question + 1..].find(':')? + question + 1;
+        return Some(expression[colon_pos..].to_string());
+    }
+    None
 }
 
 /// An operator at the end of the expression whose right-hand operand is
