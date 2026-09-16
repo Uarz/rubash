@@ -202,8 +202,16 @@ impl Executor {
             // `(( ))` traces once via execute_arithmetic_command (GNU
             // execute_cmd.c:3940), not through the generic simple-command path.
             let prefix = self.xtrace_prefix();
-            let text = self.xtrace_command_text(cmd);
-            eprintln!("{prefix}{text}");
+            if !cmd.assignments.is_empty() && !cmd.words.is_empty() {
+                // GNU traces the assignment prefix on its own line (see
+                // xtrace_assignment_text).
+                let assignments = self.xtrace_assignment_text(cmd);
+                eprintln!("{prefix}{}", assignments.join(" "));
+                eprintln!("{prefix}{}", cmd.words.join(" "));
+            } else {
+                let text = self.xtrace_command_text(cmd);
+                eprintln!("{prefix}{text}");
+            }
         }
         let mut status = 0;
         for (name, value) in &cmd.assignments {

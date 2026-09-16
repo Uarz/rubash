@@ -392,6 +392,17 @@ impl Executor {
     /// Bash traces both `VAR=x cmd args` and bare `VAR=x` assignments.
     pub(in crate::executor) fn xtrace_command_text(&mut self, cmd: &CommandNode) -> String {
         let mut parts: Vec<String> = Vec::new();
+        parts.extend(self.xtrace_assignment_text(cmd));
+        parts.extend(cmd.words.iter().cloned());
+        parts.join(" ")
+    }
+
+    /// GNU execute_simple_command traces the assignment prefix on its own
+    /// line, separate from the command words: `foo=one echo hi` traces as
+    /// `+ foo=one` then `+ echo hi` (assignments are traced as they are
+    /// performed, before the command words are dispatched).
+    pub(in crate::executor) fn xtrace_assignment_text(&mut self, cmd: &CommandNode) -> Vec<String> {
+        let mut parts: Vec<String> = Vec::new();
         for (name, value) in &cmd.assignments {
             // `COMPOUND_ASSIGNMENT_MARKER` is an internal carrier for compound
             // array assignments and must never leak into user-visible xtrace.
@@ -401,8 +412,7 @@ impl Executor {
                 .unwrap_or(&expanded);
             parts.push(format!("{name}={expanded}"));
         }
-        parts.extend(cmd.words.iter().cloned());
-        parts.join(" ")
+        parts
     }
 
     /// GNU print_cmd.c:986 `xtrace_print_arith_cmd`: print `(( expr ))` when

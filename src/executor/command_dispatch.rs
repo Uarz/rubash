@@ -25,8 +25,16 @@ impl Executor {
             // fires for it. rubash's words ["((", expr, "))"] would print a
             // second, normalized line (issue: gnu-compat set-x G16).
             let prefix = self.xtrace_prefix();
-            let text = self.xtrace_command_text(cmd);
-            eprintln!("{prefix}{text}");
+            if !cmd.assignments.is_empty() && !cmd.words.is_empty() {
+                // GNU traces the assignment prefix on its own line before the
+                // command words (`foo=one echo hi` → `+ foo=one` `+ echo hi`).
+                let assignments = self.xtrace_assignment_text(cmd);
+                eprintln!("{prefix}{}", assignments.join(" "));
+                eprintln!("{prefix}{}", cmd.words.join(" "));
+            } else {
+                let text = self.xtrace_command_text(cmd);
+                eprintln!("{prefix}{text}");
+            }
         }
 
         // GNU execute_cmd.c:4480 resets special_builtin_failed before each

@@ -1039,6 +1039,12 @@ impl Executor {
         // full pattern matcher, fall-through operators, expansion flags, and
         // compound-list control flow. This handles the common shell glob
         // operators used by simple `case` clauses.
+        // GNU execute_cmd.c:3679-3680 traces the case head (with the raw
+        // unexpanded word, print_cmd.c:742) before pattern expansion.
+        if self.xtrace_enabled() {
+            let prefix = self.xtrace_prefix();
+            eprintln!("{prefix}case {} in", case_command.word);
+        }
         let word = self.expand_case_word(&case_command.word);
         let word = tilde_expand::strip_assignment_quote_marker(&word);
         self.abandon_on_arithmetic_expansion_error()?;
