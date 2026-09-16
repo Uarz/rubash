@@ -37,7 +37,7 @@ jobs:
           make -j2
           make install
           /usr/local/bin/bash --version
-      - name: Record focused baseline and the full bounded ledger
+      - name: Record focused baseline
         shell: wsl-bash {0}
         run: |
           unset BASH_ENV WINUXSH_ROOT
@@ -51,8 +51,17 @@ jobs:
           LC_ALL=C __RUBASH_NO_UPSTREAM_SCRIPTS=1 timeout -k 5 30 target/debug/rubash.exe "$script" > "$out/rubash.out" 2> "$out/rubash.err"
           echo $? > "$out/rubash.rc"
           diff -u "$out/gnu.out" "$out/rubash.out" > "$out/stdout.diff"
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: array-focused-${{ github.sha }}
+          path: target/issue-suites/results/array-audit/
+      - name: Record the full bounded ledger
+        shell: wsl-bash {0}
+        run: |
+          unset BASH_ENV WINUXSH_ROOT
+          unset -f rm rmdir unlink || true
           bash scripts/true-baseline.sh
-          exit $?
       - uses: actions/upload-artifact@v4
         if: always()
         with:
