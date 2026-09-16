@@ -204,15 +204,17 @@ impl Executor {
                 .replace('\x1f', "$")
                 .replace('\x1a', "`")
                 .replace('\x14', "\\")
-                // The escaped-quote carriers must restore too: the lexer
-                // emits \x17 for `\'` and \x18 for `\"` in the source word
-                // (alias_helpers.rs word lexer), and a quoted assignment
-                // reaches this fast path with the carriers still in place.
-                // Missing the \x18 restore leaked the raw CAN byte into
-                // storage: `x="q\"q"` stored q\x18q (niubash issue #103) —
-                // length intact, rc 0, silent corruption on redirect.
-                .replace('\x17', "'")
+                // `\"` and `'` inside double quotes travel as the walker's
+                // data-quote markers (\x18 for \" and \x17 for ' inside "
+                // quotes, quotes.rs skip_double_quoted / quoted=='\'' arm):
+                // restoring them here is what keeps the stored value
+                // byte-identical to GNU's `q"q` (niubash#103 regression —
+                // commit 7ab91ffd introduced the \x18 marker but this fast
+                // path never un-did it, so the value leaked U+0018 into
+                // storage and into files written by printf). The PUA quote
+                // markers below are the $'...' family and are disjoint.
                 .replace('\x18', "\"")
+                .replace('\x17', "'")
                 .replace(crate::lexer::ANSI_C_QUOTE_MARKER_STR, "'")
                 .replace(crate::lexer::ANSI_C_DQUOTE_MARKER_STR, "\"");
             // The lexer marks quoted glob metacharacters (*?[!@+) with a

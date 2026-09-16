@@ -491,6 +491,12 @@ pub struct Executor {
     /// GNU dropping PF_ASSIGNRHS across a nested substitution boundary.
     pub(crate) inside_assignment_rhs: Cell<bool>,
     last_command_substitution_status: Cell<Option<i32>>,
+    /// Tracks the source of the last heredoc EOF warning emitted from
+    /// command_substitution_heredoc_output_mut_typed, to avoid duplicate
+    /// warnings when the same comsub is expanded through multiple paths
+    /// (expand_assignment_value_inner → expand_command_substitution_mut_typed
+    /// and expand_embedded_parameters_mut → expand_command_substitution_mut).
+    last_heredoc_warning_source: RefCell<Option<String>>,
     /// A current-shell (`${ ...; }` / `${| ...; }`) body that ran `exit N`
     /// aborts the enclosing (sub)shell with status N (GNU subst.c: the
     /// nofork body shares the shell's exit path). The walker records the

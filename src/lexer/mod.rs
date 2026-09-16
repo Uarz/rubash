@@ -206,6 +206,37 @@ fn tokenize_with_heredocs(
 
         let comsub_open = has_unclosed_command_substitution(&logical_line);
         if !comsub_open {
+            // GNU make_cmd.c:602-611: when the `)` closing the command
+            // substitution sits on the heredoc delimiter line (e.g. `EOF)`),
+            // the heredoc is "delimited by end-of-file" and a warning is
+            // issued. Mark the logical line with \x1c before the `)` so
+            // command_substitution_heredoc_output_mut_typed can detect this
+            // case. Only mark when the current line matches a tracked heredoc
+            // delimiter followed by `)` — NOT when `)` is on the header line
+            // (e.g. `cat << EOF)`), which is a different case handled by
+            // heredoc_header_closes_command_substitution.
+            if let Some(front) = comsub_heredocs.first().cloned() {
+                let comparable = if front.strip_tabs {
+                    line.trim_start_matches('\t')
+                } else {
+                    line
+                };
+                if comparable.starts_with(front.delimiter.as_str())
+                    && comparable[front.delimiter.len()..].contains(')')
+                {
+                    // Insert \x1c before the first `)` after the delimiter
+                    // in the logical line. command_substitution_heredoc_output_mut_typed
+                    // will detect and remove it before parsing.
+                    let after_delim = logical_line
+                        .rfind(front.delimiter.as_str())
+                        .map(|pos| pos + front.delimiter.len())
+                        .unwrap_or(0);
+                    if let Some(rel_pos) = logical_line[after_delim..].find(')') {
+                        let abs_pos = after_delim + rel_pos;
+                        logical_line.insert(abs_pos, '\x1c');
+                    }
+                }
+            }
             comsub_heredocs.clear();
         } else if let Some(front) = comsub_heredocs.first().cloned() {
             // The appended line is a heredoc body line inside the open
