@@ -399,7 +399,7 @@ impl Executor {
                 &mut stderr,
                 "{}{}: command not found",
                 self.diagnostic_prefix(),
-                cmd.words[0]
+                super::execution_misc::printable_filename(&cmd.words[0])
             )?;
             self.finish_external_error(cmd, &stderr, 127)?;
             return Ok(());

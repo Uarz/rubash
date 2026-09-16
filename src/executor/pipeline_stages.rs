@@ -331,7 +331,7 @@ impl Executor {
             let diagnostic = format!(
                 "{}{}: command not found\n",
                 self.diagnostic_prefix(),
-                expanded_name
+                super::execution_misc::printable_filename(&expanded_name)
             );
             // Bash applies a pipeline element's redirections before the
             // command lookup fails (redir.c do_redirection_internal runs for

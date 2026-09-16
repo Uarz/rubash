@@ -9,10 +9,11 @@ mod storage;
 
 pub(super) use mapfile::split_mapfile_input;
 pub(super) use storage::{
-    array_indices, array_value_at, array_values, format_indexed_array_storage,
-    format_indexed_array_values, indexed_array_entries, is_array_storage, is_marked_array_var,
-    normalize_array_expanded_value, parse_array_integer_subscript, parse_array_numeric_subscript,
-    parse_array_subscript, quote_array_value, resolve_indexed_array_subscript, store_indexed_array,
+    ansic_quote, ansic_shouldquote, array_indices, array_value_at, array_values,
+    format_indexed_array_storage, format_indexed_array_values, indexed_array_entries,
+    is_array_storage, is_marked_array_var, normalize_array_expanded_value,
+    parse_array_integer_subscript, parse_array_numeric_subscript, parse_array_subscript,
+    quote_array_value, resolve_indexed_array_subscript, store_indexed_array,
 };
 
 use std::collections::{BTreeMap, HashMap};
@@ -452,24 +453,6 @@ pub(super) fn append_array_value(
         // a2=(-iname 'abc -iname 'def) stores (-iname, "abc -iname def")).
         let split_needed = token_has_unquoted_whitespace(&token);
         let partially_quoted = !quoted_token && (token.contains('\'') || token.contains('"'));
-        // GNU apply_compound_array_list runs quote removal ONCE over the raw
-        // element word: operator quote pairs are stripped and backslash
-        // escapes are decoded in the same pass. remove_shell_quotes is that
-        // pass -- it leaves a backslash-escaped quote as the \x17/\x18 data
-        // carrier, restored below before the unquote fast paths run. The
-        // previous order (escape-decode via unquote_storage_value, then
-        // remove_shell_quotes on the result) re-parsed a decoded DATA quote
-        // as an operator pair: `x=(q\"q)` stored q\"q as q"q and then
-        // stripped it to qq, and `$'a"b'` lost the ANSI-C quote the same
-        // way (niubash #103 side finding; GNU stores q"b / a"b).
-        let token = if partially_quoted
-            && !(token.starts_with("$'") && token.ends_with('\''))
-            && !token.starts_with('\x1d')
-        {
-            restore_quote_carriers(&remove_shell_quotes(&token))
-        } else {
-            token
-        };
         let token = unquote_storage_value(&token);
         if let Some(expanded_array) = token.strip_prefix('\x1d') {
             for value in field_split_values_with_ifs(expanded_array, ifs) {
@@ -492,6 +475,13 @@ pub(super) fn append_array_value(
             }
             continue;
         }
+        let token = if partially_quoted {
+            // A quote pair inside the token (not wrapping it) is still an
+            // OPERATOR pair: `'a b'c` stores `a bc`, with the quotes gone.
+            remove_shell_quotes(&token)
+        } else {
+            token
+        };
         if scalar_append && !entries.is_empty() {
             let current = entries.get(&0).cloned().unwrap_or_default();
             let appended = if integer {
@@ -561,22 +551,6 @@ fn token_has_unquoted_whitespace(token: &str) -> bool {
         }
     }
     false
-}
-
-/// Restore the walker's quote-carrier markers emitted by
-/// `remove_shell_quotes` (\x1f `$`, \x1a backtick, \x14 backslash, \x17
-/// `'`, \x18 `"`, plus the ANSI-C PUA tags) into their real data
-/// characters, so a compound element stores byte-compatible data
-/// (assignment_expansion hoist/restore contract).
-fn restore_quote_carriers(value: &str) -> String {
-    value
-        .replace('\x1f', "$")
-        .replace('\x1a', "`")
-        .replace('\x14', "\\")
-        .replace('\x17', "'")
-        .replace('\x18', "\"")
-        .replace(crate::lexer::ANSI_C_QUOTE_MARKER_STR, "'")
-        .replace(crate::lexer::ANSI_C_DQUOTE_MARKER_STR, "\"")
 }
 
 pub(super) fn array_assignment_tokens(value: &str) -> Vec<String> {
