@@ -983,6 +983,14 @@ fn arithmetic_error_message_ctx(
         ));
     }
 
+    // GNU expr.c:529: `x++=7` / `x--=7` — post-increment returns a value,
+    // not an lvalue, so the `=` is "attempted assignment to non-variable".
+    if let Some(token) = post_increment_assignment_token(expression) {
+        return Some(format!(
+            "{expression}: attempted assignment to non-variable (error token is \"{token}\")"
+        ));
+    }
+
     // GNU expr.c:1465-1471: `--x++` / `++x--` — pre-increment returns a
     // value, not an lvalue, so the post-increment fails with
     // "++: assignment requires lvalue" / "--: assignment requires lvalue".
@@ -1547,6 +1555,45 @@ fn logical_rhs_assignment_token(expression: &str) -> Option<String> {
             let eq_abs = rest_abs + len + skipped_ws;
             return Some(expression[eq_abs..].to_string());
         }
+    }
+    None
+}
+
+/// GNU expr.c:529: `x++=7` / `x--=7` — post-increment returns a value,
+/// not an lvalue, so the following `=` is "attempted assignment to non-variable".
+/// The error token is the `=` and everything after.
+/// e.g. `x++=7` -> error token is "=7 "
+fn post_increment_assignment_token(expression: &str) -> Option<String> {
+    let trimmed = expression.trim_start();
+    let first = match trimmed.chars().next() {
+        Some(ch) if ch.is_ascii_alphabetic() || ch == '_' => ch,
+        _ => return None,
+    };
+    let mut len = first.len_utf8();
+    while trimmed[len..]
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+    {
+        len += trimmed[len..].chars().next().unwrap().len_utf8();
+    }
+    for post_op in ["++", "--"] {
+        if !trimmed[len..].starts_with(post_op) {
+            continue;
+        }
+        let after_op = trimmed[len + post_op.len()..].trim_start();
+        if !after_op.starts_with('=') {
+            continue;
+        }
+        // `x===7` is not a valid assignment.
+        if after_op[1..].starts_with('=') {
+            continue;
+        }
+        let var_end = len;
+        let ws_len = trimmed[len + post_op.len()..].len() - after_op.len();
+        let eq_abs = var_end + post_op.len() + ws_len;
+        let prefix_len = expression.len() - trimmed.len();
+        return Some(expression[prefix_len + eq_abs..].to_string());
     }
     None
 }
