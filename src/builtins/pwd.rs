@@ -458,7 +458,7 @@ mod tests {
         let env_vars = HashMap::new();
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
-        let status = execute_with_env_and_io(
+        let outcome = execute_with_env_and_io(
             ["-P"].iter().copied(),
             &env_vars,
             &verbatim,
@@ -467,7 +467,7 @@ mod tests {
             &mut stderr,
         )
         .unwrap();
-        assert_eq!(status, EXECUTION_SUCCESS);
+        assert_eq!(outcome.status, EXECUTION_SUCCESS);
         let printed = String::from_utf8(stdout).unwrap();
         assert!(!printed.contains('?'), "{printed}");
         assert!(printed.starts_with('/'), "{printed}");
@@ -511,7 +511,7 @@ mod tests {
         for args in [&["-L"][..], &[][..]] {
             let mut stdout = Vec::new();
             let mut stderr = Vec::new();
-            let status = execute_with_env_and_io(
+            let outcome = execute_with_env_and_io(
                 args.iter().copied(),
                 &env_vars,
                 &cwd,
@@ -520,7 +520,7 @@ mod tests {
                 &mut stderr,
             )
             .unwrap();
-            assert_eq!(status, EXECUTION_SUCCESS);
+            assert_eq!(outcome.status, EXECUTION_SUCCESS);
             assert_eq!(String::from_utf8(stdout).unwrap(), "/\n");
         }
 
@@ -532,7 +532,7 @@ mod tests {
         let expected = crate::executor::path::shell_pwd_display_path(&shell_display_path(&cwd));
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
-        let status = execute_with_env_and_io(
+        let outcome = execute_with_env_and_io(
             ["-L"].iter().copied(),
             &env_vars,
             &cwd,
@@ -541,7 +541,7 @@ mod tests {
             &mut stderr,
         )
         .unwrap();
-        assert_eq!(status, EXECUTION_SUCCESS);
+        assert_eq!(outcome.status, EXECUTION_SUCCESS);
         assert_eq!(String::from_utf8(stdout).unwrap(), format!("{expected}\n"));
     }
 
